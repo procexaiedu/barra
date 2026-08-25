@@ -79,6 +79,7 @@ PADROES_JAILBREAK = [
     r"servico_em_pauta|pacote_em_pauta|composicao_em_pauta|pacote_maior_na_sua_tabela|"
     r"perguntas_dele_neste_turno|observacoes_internas|proximo_passo|horario_minimo|"
     r"ja_enviou_book|sem_externo|sem_menage|sem_fetiches|sem_periodo_longo|sem_video_chamada|"
+    r"dia_recusado|pedido_abaixo_do_piso|"
     r"agenda|cliente)(?:\s[^>]*)?/?>",
 ]
 

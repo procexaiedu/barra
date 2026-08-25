@@ -14,9 +14,90 @@ automaticamente no provider — sem cache_control.
 
 from typing import Any
 
+from langchain_core.utils.function_calling import convert_to_openai_tool
 from langchain_openai import ChatOpenAI
 
 from barra.settings import Settings
+
+# --- strict tool use (Beta) ---------------------------------------------------------------------
+#
+# No modo `strict` o provider CONSTRANGE a geracao pela grammar do schema, em vez de so validar
+# depois. E a diferenca entre "o modelo nao consegue inventar um campo" e "o modelo inventou e o
+# Pydantic derrubou o turno" — este segundo e o modo de falha real da extracao: o `extra="forbid"`
+# do `ExtracaoPayload` e validacao INTERNA e nao chega ao payload da API (o schema enviado nao
+# tem `additionalProperties`), entao o campo inventado so morre no parse, ja tarde.
+#
+# Exigencias da doc (`guides/tool_calls`), todas verificadas contra o schema real das tools:
+#   1. `base_url` = https://api.deepseek.com/beta  -> `criar_chat_deepseek(..., beta=True)`
+#   2. `strict: true` em cada function
+#   3. TODA propriedade de TODO objeto em `required`, e `additionalProperties: false`
+#   4. sem `minLength`/`maxLength` (string) e sem `minItems`/`maxItems` (array)
+#
+# `convert_to_openai_tool(tool, strict=True)` do langchain resolve (2) e (3) SO NA RAIZ — deixa
+# passar as propriedades de objetos ANINHADOS e nao conhece (4), que e regra do DeepSeek e nao da
+# OpenAI. `_normalizar_schema_strict` fecha os dois buracos.
+_PALAVRAS_FORA_DO_STRICT = frozenset({"minLength", "maxLength", "minItems", "maxItems"})
+
+# `format` que a grammar do strict ACEITA — descoberto na pratica no ciclo 4 (13/08/2026): o 400 do
+# provider enumera "expected one of `email`, `hostname`, `ipv4`, `ipv6`, `uuid`". O Pydantic emite
+# `format: "date"`/`"time"` para campos `datetime.date`/`time` (ex.: `data_encontro` da extracao) e
+# o /beta REJEITAVA o schema inteiro -> TODA extracao caia em 400 -> turno mudo + handoff
+# `modelo_indisponivel`. Fora da lista, o `format` sai da DECLARACAO; a validacao segue no Pydantic
+# da tool no parse (mesma troca de quem-cobra dos `minLength` acima).
+_FORMATS_DO_STRICT = frozenset({"email", "hostname", "ipv4", "ipv6", "uuid"})
+
+
+def _normalizar_schema_strict(schema: Any) -> Any:
+    """Recursivamente: poda as palavras que o strict do DeepSeek nao aceita e torna todo objeto
+    fechado (`additionalProperties: false`) com todas as propriedades em `required`.
+
+    Recursao por chave CONHECIDA de JSON Schema (`properties`/`items`/`anyOf`/`$defs`...), nunca
+    sobre todos os valores do dict: um campo de negocio chamado `type` ou `properties` faria a
+    heuristica generica confundir o dicionario de propriedades com um sub-schema.
+
+    Perder `minLength`/`maxLength` NAO afrouxa a validacao efetiva: o Pydantic da assinatura da tool
+    continua rejeitando o valor fora da faixa no parse. O que muda e so quem cobra — deixa de ser a
+    grammar do provider (que ali nem existia) e segue sendo o nosso lado.
+    """
+    if not isinstance(schema, dict):
+        return schema
+    saida: dict[str, Any] = {k: v for k, v in schema.items() if k not in _PALAVRAS_FORA_DO_STRICT}
+    if "format" in saida and saida["format"] not in _FORMATS_DO_STRICT:
+        del saida["format"]
+    if "properties" in saida and isinstance(saida["properties"], dict):
+        saida["properties"] = {
+            nome: _normalizar_schema_strict(sub) for nome, sub in saida["properties"].items()
+        }
+        # Ordem das properties, nao alfabetica: mantem o schema estavel entre chamadas — o payload
+        # das tools entra no prefixo que o DeepSeek cacheia, e reordenar seria cache-MISS de graca.
+        saida["required"] = list(saida["properties"])
+        saida["additionalProperties"] = False
+    if "items" in saida:
+        saida["items"] = _normalizar_schema_strict(saida["items"])
+    for combinador in ("anyOf", "oneOf", "allOf"):
+        if isinstance(saida.get(combinador), list):
+            saida[combinador] = [_normalizar_schema_strict(sub) for sub in saida[combinador]]
+    for defs in ("$defs", "definitions"):
+        if isinstance(saida.get(defs), dict):
+            saida[defs] = {nome: _normalizar_schema_strict(s) for nome, s in saida[defs].items()}
+    return saida
+
+
+def tool_strict_deepseek(tool: Any) -> dict[str, Any]:
+    """A `BaseTool` no formato function-calling do DeepSeek em modo `strict` (Beta).
+
+    Devolve um dict — nao a BaseTool — porque so o dict carrega `strict`/`required` ja normalizados.
+    Bindar o dict muda apenas a DECLARACAO enviada ao provider; a EXECUCAO continua na BaseTool
+    (`tool_extracao.ainvoke`), que nao passa por aqui. So use com um chat criado com `beta=True`:
+    fora do endpoint Beta o campo `strict` e ignorado em silencio, e o schema mais rigido viraria
+    custo sem contrapartida.
+    """
+    oai = convert_to_openai_tool(tool, strict=True)
+    fn = dict(oai["function"])
+    fn["parameters"] = _normalizar_schema_strict(fn.get("parameters") or {})
+    fn["strict"] = True
+    return {"type": "function", "function": fn}
+
 
 # Motivo de parada provider-aware: `finish_reason` (OpenAI/DeepSeek) ou `stop_reason` (vocabulário
 # legado, mantido porque fakes/fixtures antigas ainda o emitem). Os dois conjuntos abaixo unificam
@@ -24,7 +105,17 @@ from barra.settings import Settings
 # - TRUNCADA: a resposta foi cortada (args de tool podem vir incompletos -> não despachar).
 # - INSEGURA: além de truncada, recusa do provider -> veredito do judge não é confiável
 #   (default seguro: bloqueia+escala). `content_filter`/`refusal` são as recusas do provider.
-PARADA_TRUNCADA = frozenset({"max_tokens", "model_context_window_exceeded", "length"})
+#
+# `insufficient_system_resource` é o 5º `finish_reason` documentado do DeepSeek (api-docs
+# `api/create-chat-completion`: stop | length | content_filter | tool_calls |
+# insufficient_system_resource) e o único que não tinha tratamento: o servidor fica sem recurso NO
+# MEIO da geração e devolve a resposta parcial em 200 OK. Sem ele no conjunto, a fala cortada seguia
+# para o cliente como bolha normal e uma `tool_call` com args truncados era DESPACHADA — exatamente
+# o dano que STOP-03/06 existe para impedir. Entra como TRUNCADA (não como recusa): a causa é
+# capacidade do provider, não safety, e a sanção certa é não despachar + escalar.
+PARADA_TRUNCADA = frozenset(
+    {"max_tokens", "model_context_window_exceeded", "length", "insufficient_system_resource"}
+)
 # RECUSA: safety filter do provider -> `refusal` (Anthropic) / `content_filter` (OpenAI/OpenRouter).
 # Vocabulario canonico unico: lido pelo no llm E pelo coordenador (reclassificacao de exaustao),
 # sempre via motivo_parada (provider-agnostico), nunca pelo campo cru stop_reason/finish_reason.
@@ -148,6 +239,7 @@ def criar_chat_deepseek(
     modelo: str | None = None,
     temperature: float | None = None,
     thinking: str = "disabled",
+    beta: bool = False,
 ) -> ChatOpenAI:
     """Wrapper do ChatOpenAI apontado DIRETO p/ a API DeepSeek (api.deepseek.com), OpenAI-compatível.
 
@@ -188,11 +280,17 @@ def criar_chat_deepseek(
     `agente._texto_turno.raciocinio_do_turno`.
     """
     modelo = modelo or settings.deepseek_model_chat
+    # `/beta` habilita as features Beta do provider — hoje so o `strict` das tools
+    # (`tool_strict_deepseek`). NAO e o default e nao deve virar: e o endpoint que a DeepSeek reserva
+    # para o que ainda pode mudar, e a doc NAO afirma que o cache de prefixo se comporta igual la —
+    # e o cache e o que sustenta a economia do turno (~92% de hit). Quem liga, liga para UM caminho
+    # e mede o `prompt_cache_hit_tokens` antes de estender.
+    base_url = "https://api.deepseek.com/beta" if beta else "https://api.deepseek.com"
     if thinking != "disabled":
         return _ChatDeepSeekThinking(
             model=modelo,
             api_key=settings.deepseek_api_key,
-            base_url="https://api.deepseek.com",
+            base_url=base_url,
             # Teto PRÓPRIO do thinking (`llm_max_tokens_thinking`): em thinking o `max_tokens` cobre
             # a saída inteira — raciocínio + fala —, então o teto pensado só para a fala cortaria a
             # bolha no meio do raciocínio (`finish_reason=length` -> turno truncado/vazio).
@@ -204,7 +302,7 @@ def criar_chat_deepseek(
     return ChatOpenAI(
         model=modelo,
         api_key=settings.deepseek_api_key,
-        base_url="https://api.deepseek.com",
+        base_url=base_url,
         max_tokens=settings.llm_max_tokens,
         temperature=temperature,
         max_retries=tentativas_que_cabem_no_turno(settings),

@@ -35,6 +35,23 @@ def test_a_bolha_unica_e_quem_enquadra_o_video() -> None:
     assert "quem o enquadra como exclusividade é aquela linha da bolha" in midia
 
 
+def test_com_preco_na_mesa_o_book_sai_num_ato_unico() -> None:
+    """Com o preço já na mesa, a bolha do book é a ÚNICA do turno (check `book_uma_bolha_ok`).
+
+    O resíduo do cenário duvida_das_fotos: a conduta passava, mas a resposta saiu pingada em 3
+    bolhas (confirmação / enquadramento / disponibilidade). A instrução nomeia o pingado como
+    proibido E diz a forma certa — tudo junto numa bolha só — sem ditar frase.
+    """
+    midia = _bloco("midia")
+
+    assert "O envio do book é um ato único" in midia
+    assert "essa é a ÚNICA bolha do turno" in midia
+    # Negação ativa: o pingado nomeado como proibido...
+    assert "Pingar o book em bolhas separadas" in midia
+    # ...sem revogar o trilho pré-cotação (reconhecimento + valor + linha do book).
+    assert "só o turno que ainda precisa cotar" in midia
+
+
 def test_a_legenda_continua_vazia_nos_dois_sites() -> None:
     midia = _bloco("midia")
 

@@ -8,6 +8,7 @@ needs_db (DB real via TEST_DATABASE_URL, ROLLBACK sempre), NAO needs_key: graph 
 
 from __future__ import annotations
 
+import importlib
 import os
 from collections.abc import AsyncIterator
 from typing import Any
@@ -20,6 +21,22 @@ from psycopg import AsyncConnection
 from psycopg.rows import dict_row
 
 pytestmark = pytest.mark.needs_db
+
+
+@pytest.fixture(autouse=True)
+def _judge_aup_offline(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Neutraliza o LLM-judge de AUP: aqui o graph e fake e o marcador e `not needs_key`, entao o
+    no output_guard nao pode sair para a rede. Sem isto o judge chama a API de verdade (gasta
+    credito apesar do marcador) e, quando outro teste async ja rodou no mesmo processo, reusa o
+    cliente httpx preso ao event loop anterior -> `Event loop is closed` -> exception -> default
+    seguro -> turno mudo -> falha que so aparece na suite completa."""
+    # importlib porque `nos/__init__` exporta a FUNCAO `output_guard` e sombreia o submodulo
+    og = importlib.import_module("barra.agente.nos.output_guard")
+
+    async def _aprovado(*_a: Any, **_k: Any) -> Any:
+        return og._VeredictoAup(viola=False, motivo="nenhum")
+
+    monkeypatch.setattr(og, "_julgar_aup", _aprovado)
 
 
 @pytest_asyncio.fixture
@@ -173,3 +190,95 @@ async def test_rodar_massa_com_dataset_run_nao_quebra_sem_handler(
 
     assert len(resultados) == 1, resultados
     assert resultados[0]["cenario"] == "foto_portaria"
+
+
+async def test_tools_do_banco_le_o_rastro_real_do_turno(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """12c (c7): a regua do book conta `enviar_midia` do TURNO, e o rastro que sobrevive a
+    regeneracao do output_guard e o de `barravips.tool_calls` — nao o das AIMessages.
+
+    Aqui o que se prova e o contrato com o banco REAL, que o teste puro (FakeConn, unit/
+    test_rig_carimbo_e_veredito) nao alcanca: o `ANY(%s::uuid[])` adapta a lista de `turno_id`,
+    o `payload` volta como dict (jsonb) e os turnos VIZINHOS nao vazam — os turnos de um caso e2e
+    dividem a mesma transacao, entao filtrar por turno_id e o que impede o turno 5 de herdar o
+    book do turno 1. ROLLBACK do fixture desfaz os INSERTs."""
+    import json
+    from uuid import uuid4
+
+    from evals.harness import _tools_do_banco
+
+    turno_a, turno_b = str(uuid4()), str(uuid4())
+    for turno_id, idx, tipo in ((turno_a, 0, "foto"), (turno_a, 1, "video"), (turno_b, 0, "foto")):
+        await conn.execute(
+            "INSERT INTO barravips.tool_calls (turno_id, tool_name, call_idx, payload)"
+            " VALUES (%s, 'enviar_midia', %s, %s::jsonb)",
+            (turno_id, idx, json.dumps({"tag": "corpo", "tipo": tipo, "legenda": ""})),
+        )
+
+    nomes, args = await _tools_do_banco(conn, [turno_a])
+
+    assert nomes == ["enviar_midia", "enviar_midia"]
+    assert [a["tipo"] for a in args] == ["foto", "video"], args  # ordem por call_idx
+    assert all(isinstance(a, dict) for a in args), "payload jsonb tem que voltar como dict"
+    # o turno vizinho da MESMA transacao nao entra
+    assert await _tools_do_banco(conn, [turno_b]) == (["enviar_midia"], [args[0]])
+
+
+async def test_escalada_do_coordenador_e_carimbada_no_turno(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """12d (c8): `escalar_por_exaustao` abre handoff SEM tocar `messages` (07 §3.3) — o unico
+    rastro e a linha nova em `barravips.escaladas`. Aqui o contrato REAL que o teste puro
+    (FakeConn, unit/test_rig_carimbo_e_veredito) nao alcanca: a coluna `observacao` existe e
+    guarda o motivo literal, o filtro `fechada_em IS NULL` casa, e a 2a abertura e no-op pela
+    idempotencia do `abrir_handoff` (pausa herdada -> nenhum carimbo novo).
+
+    Usa o MESMO par `mapear_motivo` + `abrir_handoff` que o coordenador usa, para o teste nao
+    depender do meu palpite sobre tipo/responsavel. ROLLBACK do fixture desfaz tudo."""
+    from evals.harness_fiel import _escalada_nova, _escaladas_abertas
+
+    from barra.dominio.escaladas.service import abrir_handoff, mapear_motivo
+
+    cen = await seedar(
+        conn,
+        {
+            "cenario": {
+                "modelo": {"nome": "Manu", "tipo_atendimento_aceito": ["interno"]},
+                "atendimento": {"estado": "Qualificado"},
+            },
+            "historico": [],
+        },
+    )
+    antes = await _escaladas_abertas(conn, cen.atendimento_id)
+    assert antes == set()
+
+    tipo, responsavel = mapear_motivo("modelo_indisponivel")
+    await abrir_handoff(
+        conn,
+        atendimento_id=cen.atendimento_id,
+        responsavel=responsavel,
+        tipo=tipo,
+        resumo_operacional="Agente nao encerrou o turno (teste).",
+        acao_esperada="Revisar trace.",
+        origem="agente",
+        autor="sistema",
+        observacao="modelo_indisponivel",
+    )
+
+    assert await _escalada_nova(conn, cen.atendimento_id, antes) == "modelo_indisponivel"
+
+    # turno seguinte: a escalada ja esta de pe -> `abrir_handoff` e no-op e nada e carimbado.
+    agora_abertas = await _escaladas_abertas(conn, cen.atendimento_id)
+    await abrir_handoff(
+        conn,
+        atendimento_id=cen.atendimento_id,
+        responsavel=responsavel,
+        tipo=tipo,
+        resumo_operacional="Segunda tentativa (teste).",
+        acao_esperada="Revisar trace.",
+        origem="agente",
+        autor="sistema",
+        observacao="timeout_grafo",
+    )
+    assert await _escalada_nova(conn, cen.atendimento_id, agora_abertas) is None

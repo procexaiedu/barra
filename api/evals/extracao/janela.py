@@ -95,6 +95,11 @@ def variaveis_do_bloco(snapshot: dict[str, Any]) -> dict[str, Any]:
         "duracao_fechada": _numero_seco(snapshot.get("duracao_horas")),
         "forma_pagamento": snapshot.get("forma_pagamento"),
         "urgencia": snapshot.get("urgencia"),
+        # Quem paga a corrida no externo: o bloco so o renderiza quando esta gravado como
+        # verdadeiro, e e por ele que o extrator enxerga a RETRATACAO ("pode chamar voce mesma").
+        "deslocamento_por_conta_do_cliente": bool(
+            snapshot.get("deslocamento_por_conta_do_cliente")
+        ),
         "fetiches_do_cadastro": tuple(snapshot.get("fetiches_do_cadastro") or ()),
     }
 

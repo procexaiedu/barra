@@ -84,6 +84,13 @@ _RE_PEDIDO_ENDERECO = re.compile(
     r"(?:[ée]\s+)?casa\s+ou\s+(?:apartamento|apto|pr[ée]dio)|"
     r"(?:apartamento|apto|pr[ée]dio)\s+ou\s+casa|"
     r"(?:seu|teu)\s+[ée]\s+(?:apartamento|apto|pr[ée]dio|casa)|"
+    # Campanha 13/08 (casos eb02:91564424585333 e eb04:17072595685398): "Tem local?" e "onde a
+    # gente pode se encontrar?" são as formas mais comuns de pedir o ponto no corpus e ficavam
+    # fora — sem o sinal, o <local_de_encontro> não renderiza e a resposta vira eco da região
+    # ("Estou na Barra") sem endereço nem avanço. O teto de 30 chars no ramo do "onde ...
+    # encontrar" segura a frase longa que fala de outra coisa.
+    rf"(?:{_PRONOMES}\s+)?tem\s+(?:local|lugar|onde)|"
+    r"onde\b[^\n?]{0,30}\b(?:encontr(?:o|ar|amos)|nos\s+vemos|te\s+vejo)|"
     r"(?:fica|t[áa]|muito)\s+longe)\b",
     re.IGNORECASE,
 )
@@ -107,8 +114,27 @@ _RE_PEDIDO_PRECO = re.compile(
     # ("400 1h no meu local") e o aceite ("fechado 400 então") seguem apagados: nenhum dos dois
     # tem token de conferência, e o aceite é matéria do `_RE_CONTRAPROPOSTA`.
     r"\d{3,4}\b[^\n?]{0,18}\b(?:n[ée]|certo|correto|isso|mesmo)\b|"
-    r"(?:ent[ãa]o|fica|[ée])\s+(?:r\$\s*)?\d{3,4}\b[^\n?]{0,10}\?)",
-    re.IGNORECASE,
+    r"(?:ent[ãa]o|fica|[ée])\s+(?:r\$\s*)?\d{3,4}\b[^\n?]{0,10}\?|"
+    # Campanha 13/08 (caso eb02:26311003246742): "E o investimento?" é o eufemismo de cachê do
+    # nicho (irmão do "presente" acima) e ficava fora — e com ele ia embora a única frase do
+    # sistema que proíbe o "seria hoje ?" solto (o <pergunta_de_preco> não renderizava). Junto,
+    # "contribuição"/"colaboração", da mesma família.
+    r"investimento\b|contribui[çc][ãa]o\b|colabora[çc][ãa]o\b|"
+    # Campanha 13/08 ciclo 5 (caso eb04:154056970494004 t5): "Tu não falou o valor gata rsrsr" é
+    # COBRANÇA de preço, não pergunta — o vocabulário acima era todo interrogativo e a família
+    # "não falou o valor / não disse o preço / cadê o valor" ficava fora. Sem o sinal, a isenção
+    # `responde_pedido` do output_guard não armava e a cotação re-entregue morria no detector de
+    # repetição (regen sem o dado). "o valor não importa" segue fora (não tem verbo de cobrança).
+    r"n[ãa]o\s+(?:me\s+)?(?:falou|disse|passou|mandou|informou)\s+(?:o\s+|qual\s+)?"
+    r"(?:valor|pre[çc]o)\b|"
+    r"cad[êe]\s+(?:o\s+)?(?:valor|pre[çc]o)\b|"
+    r"faltou\s+(?:o\s+)?(?:valor|pre[çc]o)\b|"
+    # Campanha 13/08 (caso eb04:187007389155571 t5, "Que período mais longo vc faz? / E quanto"):
+    # o pedido de preço NU — "Quanto?" / "E quanto" como bolha/linha inteira — não tem verbo e não
+    # casava ramo nenhum; o modelo cotou às cegas, sem a regra do avanço. Ancorado em linha
+    # (MULTILINE) para não acender em "quanto tempo você fica".
+    r"^\s*e?\s*quanto\s*\??\s*$)",
+    re.IGNORECASE | re.MULTILINE,
 )
 
 _MAX_PERGUNTAS = 3
@@ -184,6 +210,33 @@ def pediu_endereco_no_burst(mensagens: list[BaseMessage]) -> bool:
 def pediu_preco_no_burst(mensagens: list[BaseMessage]) -> bool:
     """O burst atual pergunta preço? (com ou sem "?")."""
     return any(_RE_PEDIDO_PRECO.search(t) for t in _textos_do_burst(mensagens))
+
+
+def contem_pedido_de_preco(texto: str) -> bool:
+    """True se ESTA fala pede preço (mesmo detector de `pediu_preco_no_burst`, por texto).
+
+    Usado pelo output_guard para a isenção "resposta ao pedido" do detector de repetição
+    (campanha 13/08): lá o burst já vem como lista de falas cruas, não como janela de mensagens."""
+    return _RE_PEDIDO_PRECO.search(texto) is not None
+
+
+# Pedido de HORÁRIO — "que horas", "a que horas", "qual horário", "que hora(s) vc consegue/pode/
+# atende". Mesma família do `_PERGUNTA_DE_HORARIO` de `_disciplina.py` (lá ela conta a disciplina
+# anti-loop da PRÓPRIA IA; aqui ela lê a fala do CLIENTE), redigida no padrão dos irmãos acima
+# (acento explícito, sem normalizar). Campanha 13/08 ciclo 4 (caso eb02:274203613901023 t8):
+# o cliente re-perguntou "Que horas amanhã vc consegue ?" e a resposta certa — a MESMA hora já
+# proposta ("Consigo às 10h, fecha ?") — caía no detector de repetição do guard; regen 2x vazia
+# -> turno MUDO. Hora re-perguntada é o mesmo closed-world de preço/endereço: o dado pedido volta.
+_RE_PEDIDO_HORA = re.compile(
+    r"\b(?:que|qual)\s+(?:o\s+)?(?:hora|horas|hor[áa]rios?)\b",
+    re.IGNORECASE,
+)
+
+
+def contem_pedido_de_hora(texto: str) -> bool:
+    """True se ESTA fala pergunta o horário ("que horas", "qual horário") — irmão por-texto de
+    `contem_pedido_de_preco`, para a mesma isenção "resposta ao pedido" do output_guard."""
+    return _RE_PEDIDO_HORA.search(texto) is not None
 
 
 # Duração pedida — só formas NUMÉRICAS inequívocas ("3h", "2 horas", "30 min", "meia hora").
@@ -520,6 +573,75 @@ def composicao_na_janela(mensagens: list[BaseMessage]) -> bool:
         if texto and not _RE_SPOTLIGHT.search(texto) and _RE_COMPOSICAO.search(texto):
             return True
     return False
+
+
+# --- Cauda de fechamento (campanha 13/08, M4d) ---------------------------------------------------
+# Janela futura VAGA: ele adia sem data ("semana que vem te falo", "quando der te chamo") com o
+# preço já na mesa — a morte recorrente da cauda longa é a IA devolver a iniciativa ("me avisa
+# quando souber") e a conversa acabar ali. O detector exige CO-OCORRÊNCIA na mesma bolha: um token
+# de tempo vago + uma fala de adiamento. O adiamento sozinho fica de fora de propósito ("chegando
+# lá te aviso" é aviso de chegada, não janela vaga — o mesmo falso positivo que o
+# `_RE_PREFIXO_CHEGADA` da duração já caça); só "qualquer/um dia desses" entra sozinho, porque não
+# tem leitura de chegada possível. Conservador: recall menor, falso positivo ~0 — o bloco que ele
+# acende manda propor agenda concreta, e propor agenda em cima de fala que não era adiamento
+# atropelaria a conversa.
+_TOKEN_TEMPO_VAGO = (
+    # A supressao na linha seguinte: `S105` le "TOKEN" no nome e supoe segredo. E um padrao de
+    # regex de datas vagas ("semana que vem") — token no sentido de lexema, nao de senha.
+    r"(?:(?:semana|m[êe]s)\s+que\s+vem|pr[óo]xima\s+semana|"  # noqa: S105
+    r"(?:esses|nesses|uns)\s+dias|(?:final|fim)\s+de\s+semana|fds|"
+    r"mais\s+pra\s+frente|outro\s+dia|outra\s+hora|depois|"
+    r"quando\s+(?:der|puder|pintar|sobrar|rolar)|assim\s+que\s+(?:der|puder|conseguir)|"
+    r"qualquer\s+(?:dia|hora|coisa))"
+)
+_FALA_DE_ADIAMENTO = (
+    r"(?:te\s+(?:falo|aviso|chamo|procuro|respondo|confirmo|dou\s+um\s+toque)|"
+    r"a\s+gente\s+(?:se\s+fala|combina|marca|conversa)|"
+    r"entro\s+em\s+contato|te\s+mando\s+(?:mensagem|msg)|"
+    r"falo\s+(?:contigo|com\s+voc[êe])|marco\s+(?:contigo|com\s+voc[êe])|"
+    r"eu\s+(?:te\s+)?(?:falo|aviso|chamo))"
+)
+_RE_JANELA_FUTURA_VAGA = re.compile(
+    rf"\b{_TOKEN_TEMPO_VAGO}\b[^\n?]{{0,40}}\b{_FALA_DE_ADIAMENTO}\b"
+    rf"|\b{_FALA_DE_ADIAMENTO}\b[^\n?]{{0,40}}\b{_TOKEN_TEMPO_VAGO}\b"
+    r"|\b(?:qualquer|um)\s+dia\s+desses\b",
+    re.IGNORECASE,
+)
+
+
+def janela_futura_vaga_no_burst(mensagens: list[BaseMessage]) -> bool:
+    """O burst atual ADIA sem data ("semana que vem te falo", "te aviso qualquer dia desses")?
+
+    Só o detector: o gate de renderização (preço já na mesa) fica com o chamador
+    (`prepare_context`), que tem o belief."""
+    return any(_RE_JANELA_FUTURA_VAGA.search(t) for t in _textos_do_burst(mensagens))
+
+
+# Desistência dita — a fala de encerrar a compra ("então deixa", "deixa pra lá", "sem anal não
+# rola"). Recorte estreito de propósito (falso positivo aqui renderia um bloco de resgate em cima
+# de conversa viva): "então deixa EU ver" e afins ficam fora pelo lookahead; "valeu então"/
+# "obrigado então" ficam fora porque também fecham venda GANHA; o ramo "sem X não rola" cobre a
+# desistência condicionada ao item (caso eb02:266343857258751), com a vírgula quebrando o
+# encadeamento ("sem problema, não dá hoje" não casa).
+_RE_DESISTENCIA = re.compile(
+    r"\bent[ãa]o\s+(?:deixa|dexa)\b(?!\s+(?:eu|me|que|q)\b)"
+    r"|\b(?:deixa|dexa)\s+(?:pra\s+l[áa]|quieto|ent[ãa]o|pra\s+(?:pr[óo]xima|outra))\b"
+    r"|\bfica\s+pra\s+(?:pr[óo]xima|outra)\b"
+    r"|\bdesist(?:o|i)\b"
+    r"|\bent[ãa]o\s+(?:n[ãa]o|nem)\s+(?:quero|rola|d[áa]|vai\s+(?:rolar|dar))\b"
+    r"|\bn[ãa]o\s+(?:rola|vai\s+(?:rolar|dar)|d[áa])\s+ent[ãa]o\b"
+    r"|\bvou\s+procurar\s+outra\b"
+    r"|\bsem\s+(?:\w+\s+){1,3}?n[ãa]o\s+(?:rola|d[áa]|fecho|adianta|tem\s+como)\b",
+    re.IGNORECASE,
+)
+
+
+def desistencia_no_burst(mensagens: list[BaseMessage]) -> bool:
+    """O burst atual declara desistência ("então deixa", "sem anal não rola")?
+
+    Só o detector: o gate de renderização (algum item da janela resolvido como FORA do cardápio
+    dela, sem parceira em pauta) fica com o chamador, que tem o cadastro resolvido."""
+    return any(_RE_DESISTENCIA.search(t) for t in _textos_do_burst(mensagens))
 
 
 def saudacao_do_burst(mensagens: list[BaseMessage]) -> str | None:

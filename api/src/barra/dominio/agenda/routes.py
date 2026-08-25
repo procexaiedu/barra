@@ -61,6 +61,10 @@ async def listar_bloqueios(
           a.data_desejada,
           a.horario_desejado,
           a.tipo_atendimento::text AS tipo_atendimento,
+          -- Alias proprio: `b.*` ja traz `bloqueios.tipo_atendimento` (emenda ADR 0025,
+          -- 2026-08-14) com o MESMO nome do campo do atendimento acima, e o ultimo venceria no
+          -- dict_row — o painel leria o tipo errado sem erro nenhum.
+          b.tipo_atendimento::text AS bloqueio_tipo_atendimento,
           c.nome AS cliente_nome,
           c.telefone AS cliente_telefone,
           m.nome AS modelo_nome
@@ -119,11 +123,20 @@ async def criar_bloqueio(
         async with conn.transaction():
             result = await conn.execute(
                 """
-                INSERT INTO barravips.bloqueios (modelo_id, inicio, fim, origem, observacao, atendimento_id)
-                VALUES (%s, %s, %s, 'painel_fernando', %s, %s)
+                INSERT INTO barravips.bloqueios
+                    (modelo_id, inicio, fim, origem, observacao, atendimento_id, tipo_atendimento)
+                VALUES (%s, %s, %s, 'painel_fernando', %s, %s,
+                        %s::barravips.tipo_atendimento_enum)
                 RETURNING *
                 """,
-                (body.modelo_id, body.inicio, body.fim, body.observacao, body.atendimento_id),
+                (
+                    body.modelo_id,
+                    body.inicio,
+                    body.fim,
+                    body.observacao,
+                    body.atendimento_id,
+                    body.tipo_atendimento,
+                ),
             )
             row = await result.fetchone()
             assert row is not None
@@ -199,6 +212,14 @@ async def editar_bloqueio(
                 raise ConflitoEstado("atendimento_nao_pertence_ao_modelo")
         sets.append("atendimento_id = %s")
         params.append(body.atendimento_id)
+
+    # Declaracao de deslocamento do bloqueio AVULSO (emenda ADR 0025, 2026-08-14). Por
+    # `model_fields_set` e nao por `is not None`: limpar o tipo (voltar a "desconhecido", ou a
+    # derivar do atendimento vinculado) e uma edicao legitima, e um COALESCE tornaria isso
+    # impossivel pelo painel.
+    if "tipo_atendimento" in body.model_fields_set:
+        sets.append("tipo_atendimento = %s::barravips.tipo_atendimento_enum")
+        params.append(body.tipo_atendimento)
 
     params.append(bloqueio_id)
     try:
@@ -318,6 +339,9 @@ def _formatar_bloqueio(row: dict[str, Any]) -> dict[str, Any]:
         "estado": row["estado"],
         "origem": row["origem"],
         "observacao": row["observacao"],
+        # Deslocamento DECLARADO neste bloqueio (None = deriva do atendimento vinculado, ou
+        # desconhecido no avulso) — nao confundir com `atendimento.tipo_atendimento`.
+        "tipo_atendimento": row.get("bloqueio_tipo_atendimento"),
         "atendimento_id": str(row["atendimento_id"]) if row["atendimento_id"] else None,
         "atendimento": atendimento,
     }

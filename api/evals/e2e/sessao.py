@@ -353,6 +353,9 @@ async def _h_fim(request: Request) -> JSONResponse:
             "violacoes": veredito.violacoes,
             "anotacoes": veredito.anotacoes,
             "veredito_ok": veredito.ok,
+            # Falha de infra (provider fora do ar, teto de 60s): a corrida nao mediu conduta e
+            # tem de ser EXCLUIDA do agregado / refeita, nao contada como reprovacao.
+            "invalida_por_infra": veredito.invalida_por_infra,
             "trace_ids": [t.trace_id for t in s.turnos],
             "gravado_run_tag": run_tag,
             "encerrado": True,

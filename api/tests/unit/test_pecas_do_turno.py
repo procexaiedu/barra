@@ -219,6 +219,18 @@ async def test_bloco_carrega_a_instrucao_de_delta_com_a_excecao_da_proxima_acao(
     assert "proxima_acao_esperada" in bloco
 
 
+async def test_bloco_manda_registrar_a_correcao_e_nao_ecoar_o_belief() -> None:
+    """D-C3-1 (eb02:139384791793838): no turno da correção explícita ('Não. Quem fica no hotel é
+    você?') o extrator re-ecoou o `<tipo>externo</tipo>` do bloco em vez de gravar a correção — a
+    instrução de delta dizia só 'omita o que não mudou', nada sobre o turno que DESFAZ um dado. O
+    `<como_ler>` agora nomeia a correção como a mudança que mais importa e proíbe o eco."""
+    bloco = render_ja_registrado(**(await _variaveis()).como_variaveis())
+
+    assert "Correção é a mudança que MAIS importa" in bloco
+    assert "quem fica no hotel é você?" in bloco
+    assert "Reenviar um valor daqui de cima" in bloco
+
+
 # --- (c) o vocabulário canônico do cardápio na janela do extrator (A2 11/08) ---------------------
 
 

@@ -36,14 +36,20 @@ class VeredictoE2E:
     n_turnos: int
     custo_brl: float
     violacoes: list[str] = field(default_factory=list)
-    # Observacoes que NAO sao defeito de conduta e por isso nao zeram o `ok` — hoje so o turno que
-    # o coordenador nem processou (ver `_silencio_do_turno`). Ficam visiveis no transcrito para
-    # quem le a corrida saber que houve fala do cliente sem turno do outro lado.
+    # Observacoes que NAO sao defeito de conduta e por isso nao zeram o `ok`: o turno que o
+    # coordenador nem processou, a falha de infra e a escalada de sistema (ver `_silencio_do_turno`).
+    # Ficam visiveis no transcrito para quem le a corrida saber que houve fala do cliente sem turno
+    # do outro lado.
     anotacoes: list[str] = field(default_factory=list)
     # Conduta de venda por-conversa (voz + disciplina). Informativo: o pass/fail de conduta e' por
     # TAXA, decidido no agregado do gate (evals.e2e.conduta_gate), nao por corrida — `ok` segue so
     # a linha de chegada + invariantes DURAS.
     conduta: CondutaScore | None = None
+    # Motivo da falha de INFRA que abortou a corrida (`modelo_indisponivel`, `timeout_grafo`, ...),
+    # ou None. A corrida nao mediu conduta nenhuma: o provider caiu no meio dela. Quem agrega DEVE
+    # EXCLUI-LA do denominador (ou refazer o caso), nunca conta-la como reprovacao — e por isso que
+    # ela nao vira violacao: `ok` continua sendo so conduta, e este campo e o filtro.
+    invalida_por_infra: str | None = None
 
     @property
     def ok(self) -> bool:
@@ -79,12 +85,21 @@ def _escalou_neste_turno(r: ResultadoTurno) -> bool:
     resiste ao `_zerar_turno` — o predicado de prod casa o tool_call por id, e o id mora na
     AIMessage que o guard tem o direito de apagar.
 
+    O terceiro `or` e a escalada aberta pelo COORDENADOR, fora do grafo (`escalar_por_exaustao`):
+    ela nao chama tool nem toca `messages` — o unico rastro e a linha nova em `barravips.escaladas`,
+    que o harness fiel carimba em `escalada_do_turno`. Sem ela, um timeout do provider virava
+    "pausa externa" e a regua cobrava da IA um handoff que a IA nem soube que existiu.
+
     Sem rastro => pausa EXTERNA (bloqueio do output_guard, pipeline de Pix/foto, pausa manual do
     operador). Nesse caso a modelo humana assumiu no meio do turno: a corrida NAO conduziu sozinha.
     """
     from barra.workers.coordenador import pausa_aberta_por_este_turno
 
-    return pausa_aberta_por_este_turno(r.mensagens) or _tool_ok_no_turno(r, "escalar")
+    return (
+        pausa_aberta_por_este_turno(r.mensagens)
+        or _tool_ok_no_turno(r, "escalar")
+        or r.escalada_do_turno is not None
+    )
 
 
 def _turno_nao_processado(r: ResultadoTurno) -> bool:
@@ -102,6 +117,39 @@ def _turno_nao_processado(r: ResultadoTurno) -> bool:
     `mensagens` — e seguem sendo violacao.
     """
     return not r.nodes and not r.mensagens
+
+
+# Motivos de `escalar_por_exaustao` (workers/coordenador) partidos pelo que eles DIZEM sobre a
+# corrida. Nenhum deles passa pelo grafo: sao decisao do coordenador, sem bolha ao cliente.
+#
+# INFRA — o turno nao chegou a acontecer (provider fora do ar, teto de 60s, excecao nao prevista,
+# recursion_limit). Nao ha conduta a julgar: a corrida e REFAZIVEL, e cobra-la produzia o pior
+# tipo de sinal — o eval reprovando a IA por um APITimeoutError (c8) e o ciclo seguinte "consertando"
+# um prompt que nunca errou.
+_ESCALADA_INFRA = frozenset(
+    {
+        "modelo_indisponivel",
+        "timeout_grafo",
+        "erro_interno",
+        "exaustao_iteracoes",
+        # `aup_saida_judge_falhou` (c12): o judge de AUP do output_guard caiu por rede e o guard
+        # fechou fail-closed — `_bloquear` pausa a IA e zera as bolhas. E a QUARTA porta de
+        # escalada (nem a tool, nem a guarda da extracao, nem o coordenador: o proprio guard),
+        # e sem ela aqui uma queda de rede vira "handoff legitimo, viol=0" na regua. Medido em
+        # `eb02:224236417331442` t6, onde a resposta CERTA ja existia ("Continua 400 a 1h amor")
+        # e foi apagada por um APIConnectionError dentro de `_julgar_aup`.
+        "aup_saida_judge_falhou",
+    }
+)
+# CONDUTA/CUSTO — o sistema decidiu parar e chamar gente, e a decisao e legitima e MEDIDA: o teto
+# de turnos do dia (CUSTO-04), o safety filter do provider e o truncamento com tool_use incompleto.
+# Nao invalidam a corrida; so explicam o turno sem bolha.
+_ESCALADA_SISTEMA = frozenset({"teto_turnos", "modelo_recusou", "modelo_truncado"})
+
+
+def _infra_do_turno(r: ResultadoTurno) -> str | None:
+    """O motivo de infra que abortou este turno, ou None. Ver `_ESCALADA_INFRA`."""
+    return r.escalada_do_turno if r.escalada_do_turno in _ESCALADA_INFRA else None
 
 
 def _silencio_do_turno(i: int, r: ResultadoTurno) -> tuple[list[str], list[str]]:
@@ -131,12 +179,25 @@ def _silencio_do_turno(i: int, r: ResultadoTurno) -> tuple[list[str], list[str]]
     if _turno_nao_processado(r):
         motivo = "pausa herdada" if pausada else "gate do coordenador"
         return fora, [f"turno {i}: turno nao processado ({motivo}); o grafo nao rodou"]
+    # Falha de INFRA vem ANTES de qualquer regua: o turno nao produziu conduta a julgar. Sem esta
+    # saida, o mesmo handoff era cobrado duas vezes ("mudo" + "pausada sem escalada") — as 2
+    # violacoes duras do c8, ambas contra o provider e nenhuma contra a IA.
+    infra = _infra_do_turno(r)
+    if infra is not None:
+        return fora, [f"turno {i}: corrida invalidada por falha de infra ({infra})"]
     escalou = _escalou_neste_turno(r)
     mudo = not r.texto.strip() and not _tool_ok_no_turno(r, "enviar_midia")
     if mudo and not (r.mute_deliberado or escalou):
         fora.append(f"turno {i}: turno mudo (nenhuma bolha chegou ao cliente)")
     if pausada and not escalou:
         fora.append(f"turno {i}: IA pausada sem escalada deste turno (handoff externo)")
+    if r.escalada_do_turno in _ESCALADA_SISTEMA:
+        # Escalada legitima do coordenador (custo/safety): `escalou` ja tirou as violacoes acima;
+        # a anotacao existe para o turno sem bolha nao parecer silencio inexplicado no transcrito.
+        return fora, [
+            f"turno {i}: escalada do sistema ({r.escalada_do_turno}); "
+            "handoff sem bolha ao cliente, por desenho"
+        ]
     return fora, []
 
 
@@ -147,6 +208,7 @@ def avaliar_e2e(res: ResultadoE2E, perfil: PerfilCaso) -> VeredictoE2E:
 
     violacoes: list[str] = []
     anotacoes: list[str] = []
+    invalida_por_infra: str | None = None
     # `_texto_ao_cliente`, NAO `_texto_e_args`: a invariante dura e sobre o que CHEGA ao cliente
     # (mesma superficie do output_guard de prod). Args internos citam "atendimento"/"cliente"
     # legitimamente (proxima_acao_esperada, resumo de escalada) — rodar o detector neles gerou
@@ -160,6 +222,7 @@ def avaliar_e2e(res: ResultadoE2E, perfil: PerfilCaso) -> VeredictoE2E:
         duras, notas = _silencio_do_turno(i, t)
         violacoes.extend(duras)
         anotacoes.extend(notas)
+        invalida_por_infra = invalida_por_infra or _infra_do_turno(t)
 
     # Camada 2: ordem de acoes cross-turn (cotacao antes de confirmar; pix so em externo).
     violacoes.extend(avaliar_sequencia(res))
@@ -182,6 +245,7 @@ def avaliar_e2e(res: ResultadoE2E, perfil: PerfilCaso) -> VeredictoE2E:
         violacoes=violacoes,
         anotacoes=anotacoes,
         conduta=avaliar_conduta(res),
+        invalida_por_infra=invalida_por_infra,
     )
 
 

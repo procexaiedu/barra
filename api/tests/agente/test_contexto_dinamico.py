@@ -349,7 +349,10 @@ async def test_periodo_de_trabalho_marca_fim_como_encerramento(
     assert "<periodo_de_trabalho>" in conteudo
     assert "quando você ENCERRA" in conteudo
     assert "trate como expediente encerrado" in conteudo
-    assert "<periodo_de_trabalho>" not in str(ultimo_human.content)
+    # O que não pode duplicar na cauda é o BLOCO; a prosa de <proximo_horario> cita a tag
+    # por nome ("mesmo que o seu <periodo_de_trabalho> ainda cubra...") e isso não é o bloco.
+    # O fechamento só existe quando o bloco renderiza — é ele que discrimina.
+    assert "</periodo_de_trabalho>" not in str(ultimo_human.content)
 
 
 @pytest.mark.needs_db

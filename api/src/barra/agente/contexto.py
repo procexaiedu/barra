@@ -38,3 +38,10 @@ class ContextAgente:
     # banco. Setado (harness fiel/replay) -> instante fixo: agenda/antecedencia/bordas viram
     # deterministicas e o teste roda no MESMO codigo de prod (so a fonte de "agora" muda). Aware UTC.
     agora_utc: datetime | None = None
+    # Prazo do TURNO em relogio MONOTONICO (time.monotonic() + turno_timeout_s, carimbado pelo
+    # coordenador antes do ainvoke). O output_guard le o que sobrou antes de gastar em regen/judge:
+    # sem isto, uma regen lenta (37s medidos, campanha 13/08) estourava o wait_for do coordenador e
+    # o turno morria POR FORA do grafo — mute + escalada por exaustao, sem nenhum dos fallbacks
+    # deterministicos que o guard tem prontos. None (teste unitario que chama o no direto) ->
+    # sem orcamento, comportamento anterior.
+    turno_deadline_mono: float | None = None

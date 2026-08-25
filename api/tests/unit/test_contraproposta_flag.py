@@ -393,6 +393,10 @@ def test_render_sem_o_dia_nao_mostra_numero_e_manda_sondar() -> None:
     assert "<escada_travada_sem_o_dia>" in out
     assert "Seria hoje ?" in out
     assert "<escada_disponivel>" not in out
+    # eb02/eb03: a defesa do valor nunca sai sozinha — a ilustração vem JÁ composta com o
+    # avanço na mesma bolha, e a negação ativa proíbe a bolha decorativa.
+    assert "Poxa amor, esse é o meu valor rs / Seria hoje ?" in out
+    assert "NUNCA sai sozinha" in out
 
 
 def test_render_sem_preco_na_mesa_nao_fala_de_desconto() -> None:
@@ -742,8 +746,14 @@ def test_render_pacote_maior_e_dado_puro_sem_fala_pronta() -> None:
 
 
 def test_render_pacote_maior_com_o_tempo_dele_ja_dito_nao_pede_sondagem() -> None:
+    """O atributo existe nos DOIS estados (13/08): a ausência dizia "não sonde" por omissão, e
+    omissão não é dado — o degrau 2 do <desconto> lê o `tempo_que_ele_tem` para escolher entre
+    sondar e vender. Aqui ele carrega o outro lado, e a sondagem sai de cena pelo que está escrito,
+    não pelo que falta. Continua sem fala pronta: a tag é dado."""
     out = _render(pacote_maior={"horas": "2", "preco": "800"}, tempo_dele_desconhecido=False)
-    assert '<pacote_maior_na_sua_tabela horas="2" preco="800"/>' in out
+    assert '<pacote_maior_na_sua_tabela horas="2" preco="800"' in out
+    assert "ele ainda não disse" not in out
+    assert 'tempo_que_ele_tem="ele já sinalizou que tem tempo' in out
 
 
 def test_render_sem_pacote_maior_nao_injeta_nada() -> None:

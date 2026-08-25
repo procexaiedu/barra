@@ -7,6 +7,7 @@ Cobre:
 """
 
 import asyncio
+from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
@@ -16,15 +17,24 @@ from langchain_core.messages import AIMessage, BaseMessage
 from prometheus_client import REGISTRY
 
 from barra.agente._custo import (
+    PRECO_DEEPSEEK_OFF_PEAK_USD_PER_MTOK,
+    PRECO_DEEPSEEK_PEAK_USD_PER_MTOK,
     PRECO_DEEPSEEK_USD_PER_MTOK,
+    VIGENCIA_TARIFA_HORARIA,
     cache_read_deepseek,
     calcular_custo_brl,
+    em_horario_de_pico,
     input_nao_cacheado,
+    tabela_deepseek_vigente,
 )
 from barra.agente.contexto import ContextAgente
 from barra.agente.nos.llm import no_llm
 
 COTACAO = 5.50
+# Momento CONGELADO na vigencia da tarifa plana. Sem ele estes testes liam o relogio e passariam a
+# falhar sozinhos em 2026-08-16 16:00 UTC — nao por regressao, mas porque a tarifa mudou embaixo
+# deles. O corte por `momento` e justamente o que mantem o custo historico reprodutivel.
+MOMENTO_PLANO = datetime(2026, 8, 1, 12, 0, tzinfo=UTC)
 
 
 def test_calcular_custo_brl_combina_os_componentes() -> None:
@@ -40,7 +50,7 @@ def test_calcular_custo_brl_combina_os_componentes() -> None:
             "ephemeral_5m_input_tokens": 0,
         },
     }
-    custo = calcular_custo_brl(um, COTACAO)
+    custo = calcular_custo_brl(um, COTACAO, momento=MOMENTO_PLANO)
     esperado_usd = (
         1000 * PRECO_DEEPSEEK_USD_PER_MTOK["input"]
         + 500 * PRECO_DEEPSEEK_USD_PER_MTOK["output"]
@@ -58,7 +68,7 @@ def test_calcular_custo_brl_sem_tarifa_de_write_nao_estoura_keyerror() -> None:
         "output_tokens": 50,
         "input_token_details": {"cache_read": 4000, "ephemeral_1h_input_tokens": 500},
     }
-    custo = calcular_custo_brl(um, COTACAO, model_name="modelo-desconhecido")
+    custo = calcular_custo_brl(um, COTACAO, model_name="modelo-desconhecido", momento=MOMENTO_PLANO)
     esperado_usd = (100 * 0.14 + 50 * 0.28 + 4000 * 0.0028) / 1_000_000  # write a 0.0
     assert custo == pytest.approx(esperado_usd * COTACAO)
 
@@ -72,11 +82,11 @@ def test_calcular_custo_brl_deepseek_direct_usa_tabela_com_cache() -> None:
         "output_tokens": 24,
         "input_token_details": {"cache_read": 11_008},
     }
-    custo = calcular_custo_brl(um, COTACAO, model_name="deepseek-v4-flash")
+    custo = calcular_custo_brl(um, COTACAO, model_name="deepseek-v4-flash", momento=MOMENTO_PLANO)
     esperado_usd = (943 * 0.14 + 24 * 0.28 + 11_008 * 0.0028) / 1_000_000
     assert custo == pytest.approx(esperado_usd * COTACAO)
     # sem model_name cai no MESMO default (um provider so) -> mesmo custo.
-    assert calcular_custo_brl(um, COTACAO) == pytest.approx(custo)
+    assert calcular_custo_brl(um, COTACAO, momento=MOMENTO_PLANO) == pytest.approx(custo)
 
 
 def test_cache_read_deepseek_extrai_hit_do_token_usage() -> None:
@@ -105,12 +115,15 @@ def test_custo_brl_com_cache_reinjetado_bate_o_direct() -> None:
         "output_tokens": 24,
         "input_token_details": {"cache_read": hit},
     }
-    custo = calcular_custo_brl(um, COTACAO, model_name="deepseek-v4-flash")
+    custo = calcular_custo_brl(um, COTACAO, model_name="deepseek-v4-flash", momento=MOMENTO_PLANO)
     esperado_usd = (943 * 0.14 + 24 * 0.28 + 11_008 * 0.0028) / 1_000_000
     assert custo == pytest.approx(esperado_usd * COTACAO)
     # sem o reinject (cache_read=0) o mesmo turno cobraria todo o input como miss -> ~10x maior.
     sem_fix: dict[str, Any] = {**um, "input_token_details": {}}
-    assert calcular_custo_brl(sem_fix, COTACAO, model_name="deepseek-v4-flash") > custo * 5
+    assert (
+        calcular_custo_brl(sem_fix, COTACAO, model_name="deepseek-v4-flash", momento=MOMENTO_PLANO)
+        > custo * 5
+    )
 
 
 def test_calcular_custo_brl_so_cache_read_quase_zero() -> None:
@@ -121,7 +134,68 @@ def test_calcular_custo_brl_so_cache_read_quase_zero() -> None:
         "output_tokens": 0,
         "input_token_details": {"cache_read": 5000},
     }
-    assert calcular_custo_brl(um, COTACAO) == pytest.approx(5000 * 0.0028 / 1_000_000 * COTACAO)
+    assert calcular_custo_brl(um, COTACAO, momento=MOMENTO_PLANO) == pytest.approx(
+        5000 * 0.0028 / 1_000_000 * COTACAO
+    )
+
+
+def test_tabela_vigente_e_plana_antes_do_corte() -> None:
+    # Ate 2026-08-16 16:00 UTC a tarifa e plana, mesmo em hora que DEPOIS sera pico. O corte protege
+    # o custo historico: reprecificar turnos antigos com a tabela nova inventaria despesa que nao houve.
+    assert tabela_deepseek_vigente(MOMENTO_PLANO) is PRECO_DEEPSEEK_USD_PER_MTOK
+    assert tabela_deepseek_vigente(datetime(2026, 8, 10, 2, 0, tzinfo=UTC)) is (
+        PRECO_DEEPSEEK_USD_PER_MTOK
+    )
+    # No instante EXATO da virada ja vale a nova (16:00 UTC cai em off-peak).
+    assert tabela_deepseek_vigente(VIGENCIA_TARIFA_HORARIA) is PRECO_DEEPSEEK_OFF_PEAK_USD_PER_MTOK
+
+
+@pytest.mark.parametrize(
+    ("hora_utc", "pico"),
+    [
+        (0, False),  # 21:00 BRT
+        (1, True),  # 22:00 BRT — inicio INCLUSIVO da 1a faixa
+        (3, True),
+        (4, False),  # fim EXCLUSIVO
+        (5, False),
+        (6, True),  # 2a faixa
+        (9, True),
+        (10, False),  # fim EXCLUSIVO
+        (16, False),  # 13:00 BRT, horario comercial
+        (23, False),  # 20:00 BRT
+    ],
+)
+def test_em_horario_de_pico_cobre_as_bordas_das_faixas(hora_utc: int, pico: bool) -> None:
+    # As bordas sao o que erra na pratica: 01:00 UTC ja e pico, 04:00 UTC ja nao e.
+    assert em_horario_de_pico(datetime(2026, 9, 1, hora_utc, 0, tzinfo=UTC)) is pico
+
+
+def test_mesmo_turno_custa_o_dobro_em_pico() -> None:
+    # O turno quente real do trace 33f01d3a, precificado nas tres tarifas. A relacao off-peak:peak e
+    # exatamente 2x (tabela oficial), e as duas sao MAIS CARAS que a plana antiga — a mudanca de
+    # 2026-08-16 e aumento, nao desconto, e e por isso que o alvo `custo_alvo_brl` precisa ser relido.
+    um: dict[str, Any] = {
+        "input_tokens": 11_951,  # total = 943 fresco + 11008 read
+        "output_tokens": 24,
+        "input_token_details": {"cache_read": 11_008},
+    }
+    off = calcular_custo_brl(um, COTACAO, momento=datetime(2026, 9, 1, 16, 0, tzinfo=UTC))
+    peak = calcular_custo_brl(um, COTACAO, momento=datetime(2026, 9, 1, 2, 0, tzinfo=UTC))
+    plano = calcular_custo_brl(um, COTACAO, momento=MOMENTO_PLANO)
+    assert peak == pytest.approx(off * 2)
+    assert off > plano
+    esperado_off = (
+        943 * PRECO_DEEPSEEK_OFF_PEAK_USD_PER_MTOK["input"]
+        + 24 * PRECO_DEEPSEEK_OFF_PEAK_USD_PER_MTOK["output"]
+        + 11_008 * PRECO_DEEPSEEK_OFF_PEAK_USD_PER_MTOK["cache_read"]
+    ) / 1_000_000
+    assert off == pytest.approx(esperado_off * COTACAO)
+    esperado_peak = (
+        943 * PRECO_DEEPSEEK_PEAK_USD_PER_MTOK["input"]
+        + 24 * PRECO_DEEPSEEK_PEAK_USD_PER_MTOK["output"]
+        + 11_008 * PRECO_DEEPSEEK_PEAK_USD_PER_MTOK["cache_read"]
+    ) / 1_000_000
+    assert peak == pytest.approx(esperado_peak * COTACAO)
 
 
 def test_input_nao_cacheado_desconta_read_e_write() -> None:
@@ -147,14 +221,16 @@ def test_calcular_custo_brl_turno_quente_nao_dobra_o_cache() -> None:
         + 2 * PRECO_DEEPSEEK_USD_PER_MTOK["output"]
         + 16_855 * PRECO_DEEPSEEK_USD_PER_MTOK["cache_read"]
     ) / 1_000_000
-    assert calcular_custo_brl(um, COTACAO) == pytest.approx(esperado_usd * COTACAO)
+    assert calcular_custo_brl(um, COTACAO, momento=MOMENTO_PLANO) == pytest.approx(
+        esperado_usd * COTACAO
+    )
     # Sanidade: bem abaixo do que daria a contagem dobrada (input_tokens cru a 3/1M ~ 5x).
-    assert calcular_custo_brl(um, COTACAO) < 0.05
+    assert calcular_custo_brl(um, COTACAO, momento=MOMENTO_PLANO) < 0.05
 
 
 def test_calcular_custo_brl_none_devolve_zero() -> None:
     # AIMessage sem usage_metadata (resp mockada/teste) -> sem custo, sem quebrar.
-    assert calcular_custo_brl(None, COTACAO) == 0.0
+    assert calcular_custo_brl(None, COTACAO, momento=MOMENTO_PLANO) == 0.0
 
 
 def test_calcular_custo_brl_sem_detalhes_usa_so_input_output() -> None:
@@ -163,7 +239,9 @@ def test_calcular_custo_brl_sem_detalhes_usa_so_input_output() -> None:
     esperado_usd = (
         100 * PRECO_DEEPSEEK_USD_PER_MTOK["input"] + 50 * PRECO_DEEPSEEK_USD_PER_MTOK["output"]
     ) / 1_000_000
-    assert calcular_custo_brl(um, COTACAO) == pytest.approx(esperado_usd * COTACAO)
+    assert calcular_custo_brl(um, COTACAO, momento=MOMENTO_PLANO) == pytest.approx(
+        esperado_usd * COTACAO
+    )
 
 
 # --- integracao: o no llm observa o Histogram --------------------------------------------

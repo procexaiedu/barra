@@ -161,6 +161,31 @@ def test_aceite_nao_isenta_pergunta_repetida() -> None:
     assert mod.bolhas_repetidas(bolha, historicas, houve_aceite=True) == [bolha]
 
 
+def test_responde_pedido_isenta_a_reformulacao_do_preco_perguntado() -> None:
+    """Campanha 13/08 (eb02:26311003246742 t3): "E o investimento?" respondido com "é 400 a 1h no
+    meu local" dava ratio 0,9048 contra a cotação do turno anterior — 0,005 acima do limiar — e o
+    drop + regen produziam o AP-S1 ("Seria hoje amor ?"). O prompt manda exatamente essa jogada
+    ("o valor volta, com outras palavras"); com o pedido de preço no burst, a bolha que carrega o
+    dado é resposta, não papagaio."""
+    historicas = ["400 1h no meu local"]
+    bolha = "é 400 a 1h no meu local"
+    pred = mod.re.compile(r"\d").search
+    assert mod.bolhas_repetidas(bolha, historicas) == [bolha]  # sem o pedido: flagrada
+    assert mod.bolhas_repetidas(bolha, historicas, responde_pedido=lambda b: bool(pred(b))) == []
+
+
+def test_responde_pedido_nao_isenta_pergunta_nem_bolha_sem_o_dado() -> None:
+    """A isenção é fechada no DADO pedido: pergunta repetida segue flagrada (mesma razão do
+    aceite), e a bolha repetida que NÃO carrega o dado (sem dígito num pedido de preço) também."""
+    pred = mod.re.compile(r"\d").search
+    resposta = lambda b: bool(pred(b))  # noqa: E731
+    assert mod.bolhas_repetidas(
+        "Seria hoje amor ?", ["Seria hoje amor ?"], responde_pedido=resposta
+    ) == ["Seria hoje amor ?"]
+    eco = "Sou bem tranquila, estilo namoradinha completa"
+    assert mod.bolhas_repetidas(eco, [eco], responde_pedido=resposta) == [eco]
+
+
 # ==================================================================================
 # 3b/3c/4. lembrete da regen: por bolha, sem contradição, com os anexos do turno
 # ==================================================================================

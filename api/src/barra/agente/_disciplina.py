@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
+from datetime import time
 from typing import Literal
 
 from ._normalizar import normalizar
@@ -239,6 +240,15 @@ _RE_OFFSET_MINUTOS = re.compile(
 _MARCADOR_DE_DIA = (
     r"(?:hoje|hj|amanha|dia \d{1,2}|segunda|terca|quarta|quinta|sexta|sabado|domingo)"
 )
+# O irmão NEGATIVO do marcador acima: a fala cita um dia que NÃO é hoje. Veio de
+# `nos/_janela_do_turno` (campanha 13/08, c7), onde nasceu para o A2 do dia não assumir "hoje" com
+# outro dia na mesa; a pauta de horas (`horas_em_pauta_da_conversa`) usa a MESMA fronteira para não
+# materializar a hora de amanhã na data de hoje. Um regex, dois leitores.
+_TOKEN_OUTRO_DIA = re.compile(
+    r"\b(amanh[ãa]|depois de amanh[ãa]|segunda|ter[çc]a|quarta|quinta|sexta|s[áa]bado|domingo|"
+    r"semana|m[êe]s|dia \d+)\b",
+    re.IGNORECASE,
+)
 _RE_HORA_COM_DIA = re.compile(rf"\b{_MARCADOR_DE_DIA}[\s,]+(?:as\s+)?{_HORA}\s*{_SUFIXO_HORA}")
 # Espelho hora→dia ("21h hj", "21h hoje", "20h amanha"): no WhatsApp a hora vem antes do dia com a
 # mesma naturalidade, e o ramo acima só lia dia→hora — a fala do cliente E a bolha da IA do mesmo
@@ -355,6 +365,381 @@ def contem_hora_explicita(texto: str) -> bool:
             and _RE_MOLDURA_TEMPORAL.search(t) is not None
         )
     )
+
+
+# Faixa ABERTA ("estou livre hoje a partir das 19:30", "atendo das 14h as 23h"): é a
+# DISPONIBILIDADE dela, não uma proposta de horário. Mora aqui, com o resto da gramática de hora,
+# porque DOIS leitores da fala dela precisam da mesma fronteira: o `_bolha_da_ia_propoe_hora`
+# (nos/_janela_do_turno, proveniência do horário evidenciado) e as horas em pauta abaixo. "a partir
+# das" é PISO, não ponto — creditá-lo como oferta carimba compromisso sobre hora que ninguém propôs.
+#
+# O que desqualifica é o PISO/INTERVALO, não o verbo: "Estou livre às 20h, fecha ?" segue oferta.
+_RE_FAIXA_ABERTA = re.compile(
+    r"\ba partir d(?:as|a|e|o)\b|\bdepois d(?:as|e)\b|\bdas\b[^\n]{0,12}\b[àa]s\b",
+    re.IGNORECASE,
+)
+
+# --- A hora que a fala DELA põe em pauta (campanha 13/08, ciclo 7 — eb01:210917388210413) --------
+# O <horario_minimo> é recalculado a cada turno (agora + antecedência) e por isso ANDA enquanto o
+# cliente pensa: a IA ofertou "Consigo às 10h" quatro vezes, o cliente aceitou às 09:32 com o piso
+# já em 10:30 e ela negou a própria oferta ("às 10h não consigo não") no turno do fechamento. Para
+# o piso poder respeitar o que ela mesma pôs na mesa, é preciso o NÚMERO da hora ofertada, e não só
+# o booleano de "propôs hora" que a proveniência do horário já tem.
+#
+# A gramática é a da fala DELA, que o persona.md prescreve ("Hora é «16h», «20:30»"; proposta sai
+# com "às"): hora com MINUTO é inequívoca sozinha ("10:30", "10h30"); hora CHEIA só conta atrás do
+# marcador de relógio ("às 10h", "pras 22h") — sem ele "400 1h no meu local" é DURAÇÃO, o mesmo
+# empate hora-vs-duração que o `contem_hora_explicita` documenta.
+#
+# O `(?<!ate )` é o LIMITE: "atendo até as 2h", "consigo hoje 14h até as 2h" fecham a jornada, não
+# ofertam as 02:00 (refutação 13/08). É a mesma fronteira do `_RE_FAIXA_ABERTA` — piso/teto não é
+# ponto —, só que colada no marcador, para não mexer no regex que a proveniência do horário divide.
+_RE_HORA_OFERTADA = re.compile(
+    rf"(?<!ate )\b(?:as|pras?|para as)\s+({_HORA})\s*(?:[:h]\s*([0-5]\d)\b|{_SUFIXO_HORA})"
+)
+_RE_HORA_DITA_COM_MINUTO = re.compile(rf"\b({_HORA})\s*[:h]\s*([0-5]\d)\b")
+# A mesma hora com o marcador OPCIONAL, para a leitura de RETIRADA: a recusa é fala livre ("10h não
+# dá pra mim", "9h não consigo") e exigir o "às" ali deixava a hora recusada viva na pauta
+# (refutação 13/08). É a régua de `horas_recusadas_na_fala` (dominio/atendimentos/service.py), que
+# lê a recusa com o mesmo marcador opcional — e o erro dela é sempre para o lado seguro: uma hora a
+# menos na pauta só devolve o piso ao valor conservador.
+_RE_HORA_CITADA = re.compile(rf"\b(?:as\s+)?({_HORA})\s*(?:[:h]\s*([0-5]\d)\b|{_SUFIXO_HORA})")
+# LINHA DE TABELA, não relógio: "400 a 1h amor", "700 as 2h", "2500 as 12h" — falas REAIS do corpus
+# (eb03:180316434104536 t6, eb01:160219460010212 t7) em que o preço vem colado na DURAÇÃO com o
+# mesmo marcador que a oferta de hora usa. Sem este corte a tabela de preços injeta 02:00/12:00 na
+# pauta e rebaixa o piso da madrugada (refutação 13/08, achado GRAVE).
+# O recorte é o `_HORA_INEQUIVOCA` lido ao contrário: só 0-12 empata com duração de pacote (o mais
+# longo é o pernoite de 12h), então "consigo 600 as 21h" continua sendo cotação COM hora do relógio
+# — a MESMA fronteira que `contem_hora_explicita` documenta no veto de contexto de preço.
+_HORA_AMBIGUA_COM_DURACAO = r"(?:0?\d|1[0-2])"
+_RE_LINHA_DE_TABELA = re.compile(
+    rf"\b\d{{3,4}}\s*(?:a|as|pras?|para as|na|no|em|por|de)?\s*"
+    rf"{_HORA_AMBIGUA_COM_DURACAO}\s*{_SUFIXO_HORA}"
+)
+# Cláusula em que a hora é RETIRADA ("às 10h não consigo não", "10h não dá pra mim", "10h é
+# impossível"): a mesma hora aparece na fala, mas para negar. Sem este corte a recusa realimentaria
+# a oferta.
+_RE_RETIRADA_DE_HORA = re.compile(r"\b(?:nao|nunca|nem|jamais|impossivel)\b")
+# Fim de cláusula: a MESMA régua de `precos_ofertados_na_fala` (dominio/atendimentos/service.py,
+# `_RE_FIM_DE_CLAUSULA`) com UMA emenda obrigatória aqui — lá o ":" fecha cláusula, e aqui ele
+# parte ao meio o número que estamos lendo ("10:30" viraria "10" e "30"). O guard `(?<!\d)`/`(?!\d)`
+# que lá protege "1.500"/"500,00" passa a proteger também a hora. O grupo externo é de CAPTURA: o
+# `split` devolve os terminadores junto, e o "?" é o que separa a recusa dele ("10h não dá pra mim")
+# da pergunta dele ("não dá 10h ?"), que não retira nada.
+_RE_FIM_DE_CLAUSULA_DE_HORA = re.compile(r"((?<!\d)[.,:]|[.,:](?!\d)|[;!?\n])")
+
+
+def _clausulas_com_terminador(texto: str) -> list[tuple[str, str]]:
+    """`[(cláusula normalizada, terminador)]` — o terminador da última cláusula é "" (fim da fala).
+
+    A normalização vem DEPOIS do corte de propósito: `normalizar` colapsa o \\n em espaço e fundiria
+    "às 10h não consigo não" com o "Consigo às 10:30" da bolha seguinte.
+    """
+    partes = _RE_FIM_DE_CLAUSULA_DE_HORA.split(texto)
+    return [
+        (normalizar(partes[i]), partes[i + 1] if i + 1 < len(partes) else "")
+        for i in range(0, len(partes), 2)
+    ]
+
+
+def _horas_da_clausula(clausula: str, *, exige_marcador: bool) -> set[time]:
+    """Horas do relógio que a cláusula (já normalizada) nomeia — ver os regex acima.
+
+    `exige_marcador=True` é a leitura de OFERTA (o que ela põe na mesa: hora com minuto, ou hora
+    cheia atrás de "às/pras"); `False` é a leitura de MENÇÃO, usada só para RETIRAR. A assimetria é
+    o ponto: errar para mais na oferta injeta hora que ninguém propôs, errar para mais na retirada
+    só devolve o piso ao conservador.
+    """
+    limpa = _RE_LINHA_DE_TABELA.sub(" ", clausula)
+    horas = {
+        time(int(h), int(m)) for h, m in _RE_HORA_DITA_COM_MINUTO.findall(limpa) if int(h) <= 23
+    }
+    padrao = _RE_HORA_OFERTADA if exige_marcador else _RE_HORA_CITADA
+    for h, m in padrao.findall(limpa):
+        horas.add(time(int(h), int(m) if m else 0))
+    return horas
+
+
+def horas_em_pauta_da_conversa(bolhas: Iterable[tuple[bool, str]]) -> set[time]:
+    """As horas do relógio de HOJE que a fala DELA pôs na mesa e que ninguém retirou.
+
+    `bolhas` = `(é_fala_dela, texto)` em ordem CRONOLÓGICA. A assimetria é o desenho: só a fala
+    DELA (IA ou modelo no manual) ACRESCENTA — o cliente propor 11h não compromete a agenda dela —,
+    mas a retirada vale dos DOIS lados: "às 10h não consigo não" (ela) e "10h não dá pra mim, só
+    consigo 11h" (ele) tiram 10:00 da pauta do mesmo jeito (refutação 13/08). Como o cliente só
+    consegue REMOVER, o pior que uma fala hostil faz é devolver o piso ao valor conservador.
+
+    Não entram na pauta, todas por baixo (fail-closed):
+      - faixa aberta / limite de jornada (`_RE_FAIXA_ABERTA`, "até as 2h"): disponibilidade e teto
+        não são proposta;
+      - linha de tabela (`_RE_LINHA_DE_TABELA`, "700 as 2h"): é preço por duração, não relógio;
+      - cláusula que fala de OUTRO DIA (`_TOKEN_OUTRO_DIA`, "amanhã consigo às 10h"): a pauta é a
+        de HOJE, e quem a consome materializa a hora na data de hoje;
+      - pergunta DELE ("não dá 10h ?"): pergunta não retira, do mesmo jeito que `_aceite_de_
+        fechamento` não lê pergunta como aceite.
+
+    PURA e determinística, como todo detector deste módulo: quem decide o que fazer com a pauta é o
+    chamador (hoje só o piso do `<horario_minimo>`, em `nos/prepare_context`).
+    """
+    em_pauta: set[time] = set()
+    for dela, bolha in bolhas:
+        for clausula, terminador in _clausulas_com_terminador(bolha):
+            if _RE_FAIXA_ABERTA.search(clausula) or _TOKEN_OUTRO_DIA.search(clausula):
+                continue
+            if _RE_RETIRADA_DE_HORA.search(clausula) is not None:
+                # Pergunta DELE não retira ("não dá 10h ?" é sondagem, não recusa) — o mesmo veto
+                # que `_aceite_de_fechamento` aplica ao ler aceite.
+                if dela or terminador != "?":
+                    em_pauta -= _horas_da_clausula(clausula, exige_marcador=False)
+            elif dela:
+                em_pauta |= _horas_da_clausula(clausula, exige_marcador=True)
+    return em_pauta
+
+
+# --- FECHAMENTO de agenda na bolha dela (guard de HORA FANTASMA, 14/08) -------------------------
+#
+# A fala que COMPROMETE a agenda ("fechado", "te espero"), separada da que só OFERECE ("consigo às
+# 22h, fecha ?"). A distinção é load-bearing para o `bolhas_hora_fantasma` (nos/output_guard):
+# reofertar uma hora diferente da gravada é conduta CERTA (é assim que a reancoragem funciona);
+# CONFIRMAR uma hora diferente da gravada é a mentira que compromete a modelo com um encontro que
+# não existe. Medido nos 445 turnos com hora gravada dos ciclos da campanha: exigindo o token de
+# fechamento, 2 bolhas divergem (as duas, defeito real); sem ele, 20 — e as 18 extras são ofertas
+# legítimas ("Consigo às 11h, fecha ?").
+#
+# Vocabulário FECHADO e sem convite ("pode vir ?", "pode chegar ?"): convite é oferta com ponto de
+# interrogação, e creditá-lo como fechamento reprovaria a reancoragem. O verbo de fechamento do
+# `_RE_HORA_COM_FECHAMENTO` acima não serve aqui — lá ele lê a fala DELE (aceite), e inclui "rola"/
+# "bora", que na boca dela ainda é proposta.
+_RE_CONFIRMA_AGENDA = re.compile(
+    r"\bfechad[oa]\b|\bfechou\b|\bfechamos\b|\bcombinad[oa]\b|\bmarcad[oa]\b|\bconfirmad[oa]\b"
+    r"|\bagendad[oa]\b|\banotad[oa]\b|te espero|te aguardo|te esperando|nos vemos"
+)
+
+
+def confirma_agenda(texto: str) -> bool:
+    """True se a fala FECHA o encontro ("fechado", "combinado", "te espero") — não se só oferece."""
+    return _RE_CONFIRMA_AGENDA.search(normalizar(texto)) is not None
+
+
+def horas_afirmadas_na_fala(texto: str) -> set[time]:
+    """As horas do relógio que a fala AFIRMA para hoje (a leitura de OFERTA, cláusula a cláusula).
+
+    Mesma régua de `horas_em_pauta_da_conversa` — e de propósito a MESMA função de gramática
+    (`_horas_da_clausula`, `exige_marcador=True`): uma segunda cópia do regex divergiria e uma
+    legitimaria o que a outra derruba (a lição do `extrair_precos_citados`). Ficam de fora, todas
+    por baixo: faixa aberta/teto de jornada ("a partir das 10:30", "até as 2h"), linha de tabela
+    ("400 1h no meu local" é duração), outro dia ("amanhã às 15h") e a cláusula que RETIRA a hora
+    ("23h já não consigo") — nenhuma delas afirma hora de hoje.
+    """
+    horas: set[time] = set()
+    for clausula, _terminador in _clausulas_com_terminador(texto):
+        if _RE_FAIXA_ABERTA.search(clausula) or _TOKEN_OUTRO_DIA.search(clausula):
+            continue
+        if _RE_RETIRADA_DE_HORA.search(clausula) is not None:
+            continue
+        horas |= _horas_da_clausula(clausula, exige_marcador=True)
+    return horas
+
+
+# --- O DIA que o cliente já tirou da mesa (campanha 13/08, ciclo 7 — eb04:79981032001710) --------
+# Erro capital nº 3 do playbook (atropelar restrição declarada), medido no caso real: o cliente
+# disse "Não hoje não" (t4), "Tô lotado hoje, sem chance" (t13) e "Hoje eu realmente não consigo"
+# (t14) — e a IA ofertou 11h (t12) e 14h (t13) do MESMO dia. O contexto do t13 não tinha carimbo
+# nenhum da recusa: o `<escada_travada_sem_o_dia>` afirmava "você ainda NÃO sabe que dia ele quer"
+# e o `<agenda>` abria a `janela_livre` em HOJE, então o único dia concreto à vista era o recusado.
+#
+# O que já existia e NÃO cobria: `_TOKEN_OUTRO_DIA` só VETA (impede assumir hoje, não registra a
+# recusa); `classificar_recuo` é evento do burst, vai para a extração e nem casa estas três falas
+# ("to lotado hoje" e "hoje eu realmente nao consigo" ficam fora do `_RECUO_AUTONOMO`); e a família
+# `<oferta_condicionada_ao_dia>`/`estado_da_escada` condiciona o DESCONTO ao dia, não a oferta.
+#
+# Aqui o dia recusado vira DADO do turno, pela mesma régua de contiguidade das horas em pauta
+# (`_falas_da_conversa_contigua`): depois de 6h de silêncio a recusa de "hoje" já é de outro dia e
+# some sozinha, sem relógio nenhum dentro do detector.
+# "depois de amanha" ANTES de "amanha" na alternância: o regex é lido da esquerda e a ordem
+# invertida rotularia "depois de amanhã" como "amanhã" — o dia errado no bloco é pior que nenhum.
+_DIA_NOMEADO = (
+    r"(?:hoje|hj|depois de amanha|amanha|segunda|terca|quarta|quinta|sexta|sabado|domingo)"
+)
+_ROTULO_DO_DIA = {
+    "hj": "hoje",
+    "amanha": "amanhã",
+    "depois de amanha": "depois de amanhã",
+    "terca": "terça",
+    "sabado": "sábado",
+}
+# Impossibilidade NO DIA — a fala que tira o dia da mesa. Vocabulário fechado e medido contra o
+# caso real: as três formas dele ("não hoje não", "tô lotado hoje", "hoje eu realmente não
+# consigo") mais as vizinhas do corpus. Lido por CO-OCORRÊNCIA na mesma cláusula (dia + token),
+# não por ordem: no WhatsApp o dia vem antes e depois com a mesma naturalidade.
+# "dar conta"/"poder" entraram com o t8 do c8 ("hoje acho que não vou dar conta não"): a forma é
+# tão comum quanto "não consigo" e ficava fora sem recorte que a justificasse.
+_TOKEN_DE_IMPOSSIBILIDADE = re.compile(
+    r"\bnao\s+(?:consigo|vou conseguir|posso|vou poder|vou dar conta|dou conta|da|vai dar|rola"
+    r"|tenho como|to podendo)\b"
+    r"|\bimpossivel\b|\bsem chance\b|\bsem condicoes\b|\bsem tempo\b"
+    r"|\b(?:lotado|atolado|enrolado|ocupadao)\b"
+)
+# Hedge que o cliente intercala entre o dia e a negação ("hoje ACHO QUE não vou dar conta", "hoje
+# REALMENTE não"). Lista curta e FECHADA de advérbio de atenuação, nunca `.*`: o que separa a
+# recusa hedgeada do "hoje eu não te falei o endereço" é justamente não aceitar qualquer palavra no
+# meio. "eu"/"já"/"mesmo" ficam de FORA por isso — e a fala que os usa ("hoje eu realmente não
+# consigo") já entra pelo token de impossibilidade.
+_HEDGE_DA_RECUSA = r"(?:eu acho que|acho que|acho|realmente|infelizmente|sinceramente|na verdade)"
+# A negação NUA colada no dia ("não hoje não", "hoje não", "hoje acho que não"): sozinha ela não
+# diz o verbo, mas a adjacência ao dia já é a recusa inteira — é a forma mais comum das três do
+# caso real. INCERTEZA não é recusa e o lookahead a corta: "hoje não sei" é o cliente pensando, e
+# tratá-lo como veto do dia empurraria pra amanhã quem ainda pode vir hoje.
+_RE_NEGACAO_COLADA_NO_DIA = re.compile(
+    rf"\bnao\s+{_DIA_NOMEADO}\b"
+    rf"|\b{_DIA_NOMEADO}\s+(?:{_HEDGE_DA_RECUSA}\s+){{0,2}}nao\b(?!\s+(?:sei|tenho certeza))"
+)
+# O mesmo veto por OUTRA porta: "só amanhã", "fica pra sexta", "melhor segunda" recusam HOJE sem
+# nunca dizer "hoje". Captura o dia CITADO; quem recusa é o hoje (ver a função).
+_RE_SO_OUTRO_DIA = re.compile(
+    rf"\b(?:so|fica pra|fica para|melhor|prefiro|vai ter que ser|tem que ser)\s+"
+    rf"(?:na\s+|no\s+|de\s+)?({_DIA_NOMEADO})\b"
+)
+# Reabertura pelo PRÓPRIO cliente ("hoje agora deu certo", "consigo hoje sim", "hoje pode ser"):
+# quem fechou o dia é quem o reabre. Cláusula com "nao" não reabre nada (o veto está na função).
+_RE_REABERTURA_DO_DIA = re.compile(
+    rf"\b(?:consigo|posso|da|deu|deu certo|rola|pode ser|topo|bora|vamos|vou|serve|libero|liberou)"
+    rf"\b[^\n]{{0,24}}?\b{_DIA_NOMEADO}\b"
+    rf"|\b{_DIA_NOMEADO}\b[^\n]{{0,24}}?"
+    rf"\b(?:consigo|posso|da|deu|deu certo|rola|pode ser|topo|bora|vamos|vou|serve|ta bom|sim)\b"
+)
+
+
+def dia_recusado_pelo_cliente(bolhas: Iterable[tuple[bool, str]]) -> str | None:
+    """O dia que o CLIENTE tirou da mesa e não reabriu ("hoje", "amanhã", "sexta"...); None = nenhum.
+
+    `bolhas` = `(é_fala_dela, texto)` em ordem CRONOLÓGICA, o mesmo par de
+    `horas_em_pauta_da_conversa` — e a MESMA fonte contígua (`_falas_da_conversa_contigua`, que já
+    esquece o que veio antes de uma pausa de 6h). Só a fala DELE conta, nos dois sentidos: ele é
+    quem fecha o dia e é quem o reabre; a fala dela nunca recusa o próprio dia.
+
+    A unidade de leitura é o BURST dele (as bolhas seguidas, até ela falar): no WhatsApp o dia e o
+    motivo saem em bolhas separadas ("Hmm hoje acho que não vou dar conta não" / "Tô lotado de
+    coisa pra resolver"), e ler cláusula a cláusula perdia a recusa inteira. Ver
+    `_dia_recusado_no_burst`.
+
+    Três vetos, todos medidos contra o que o bloco NÃO pode fazer:
+      - pergunta DELE ("você está livre hoje ?"): terminador "?" não recusa nada — o mesmo veto que
+        `horas_em_pauta_da_conversa` e `_aceite_de_fechamento` aplicam;
+      - recusa de HORÁRIO ("hoje às 10h não dá"): cláusula com hora do relógio fala do relógio, não
+        do dia — quem trata a hora é a pauta de horas, e vetar aqui é o que separa as duas;
+      - objeção de PREÇO ("hoje não consigo pagar isso", "hoje tá caro"): `_RE_CONTEXTO_DE_PRECO`
+        (o mesmo corte que `contem_hora_explicita` usa) somado ao `_OBJECAO_DE_PRECO` que
+        `classificar_recuo` já lê — recusar o valor não é recusar o dia, e quem trata a objeção de
+        preço é a escada do desconto.
+    A cláusula vetada sai da leitura inteira, inclusive da regra de burst abaixo.
+
+    PURA e determinística: quem decide o que fazer com o carimbo é o chamador (hoje só o bloco
+    `<dia_recusado>` do `<agenda>`, em `nos/prepare_context`).
+    """
+    recusado: str | None = None
+    for clausulas in _bursts_dele(bolhas):
+        recusado = _dia_recusado_no_burst(clausulas, recusado)
+    return recusado
+
+
+def _bursts_dele(bolhas: Iterable[tuple[bool, str]]) -> list[list[str]]:
+    """As cláusulas VÁLIDAS de cada burst do cliente, na ordem — uma lista por burst.
+
+    Burst = bolhas seguidas dele, cortadas por qualquer fala dela. Cláusula vetada (pergunta,
+    hora do relógio, contexto/objeção de preço) nem entra: o veto vale para as duas leituras, a
+    da cláusula e a do burst.
+    """
+    bursts: list[list[str]] = []
+    dela_antes = True
+    for dela, bolha in bolhas:
+        if dela:
+            dela_antes = True
+            continue
+        if dela_antes:
+            bursts.append([])
+        dela_antes = False
+        for clausula, terminador in _clausulas_com_terminador(bolha):
+            if (
+                terminador == "?"
+                or _RE_CONTEXTO_DE_PRECO.search(clausula)
+                or _OBJECAO_DE_PRECO.search(clausula)
+                or _RE_HORA_CITADA.search(_RE_LINHA_DE_TABELA.sub(" ", clausula))
+            ):
+                continue
+            bursts[-1].append(clausula)
+    return bursts
+
+
+def _dia_recusado_no_burst(clausulas: list[str], recusado: str | None) -> str | None:
+    """Aplica UM burst dele sobre o dia recusado que vinha de antes.
+
+    Duas leituras, nesta ordem. A da CLÁUSULA decide sozinha quando o dia e o motivo cabem na mesma
+    (`_dia_recusado_na_clausula`), e é ela também que reabre o dia. Só quando o burst inteiro não
+    disse nada entra a leitura do BURST: o dia numa cláusula e a impossibilidade em OUTRA ("Hmm
+    hoje acho que não vou dar conta não" / "Tô lotado de coisa pra resolver", t8 do c8).
+
+    A leitura de burst é a mais larga das duas e por isso tem trava própria: não vale se alguma
+    cláusula do MESMO burst REABRE o dia citado ("hoje eu consigo" / "tô atolado mas dou um jeito")
+    — ali o motivo não está vetando dia nenhum.
+    """
+    mudou = False
+    for clausula in clausulas:
+        dia = _dia_recusado_na_clausula(clausula)
+        if dia is not None:
+            recusado, mudou = dia, True
+        elif recusado is not None and _reabre_o_dia(clausula, recusado):
+            recusado, mudou = None, True
+    if mudou or not any(_TOKEN_DE_IMPOSSIBILIDADE.search(c) for c in clausulas):
+        return recusado
+    for clausula in clausulas:
+        primeiro = re.search(rf"\b{_DIA_NOMEADO}\b", clausula)
+        if primeiro is None:
+            continue
+        dia = _ROTULO_DO_DIA.get(primeiro.group(0), primeiro.group(0))
+        if any(_reabre_o_dia(c, dia) for c in clausulas):
+            continue
+        return dia
+    return recusado
+
+
+def _reabre_o_dia(clausula: str, dia: str) -> bool:
+    """True se ESTA cláusula do cliente devolve `dia` para a mesa ("hoje agora deu certo").
+
+    Cláusula com "não" não reabre nada — é o mesmo fail-closed do resto do módulo: errar aqui para
+    o lado largo apaga um veto que ele declarou, que é o defeito que o carimbo existe para corrigir.
+    """
+    return (
+        "nao" not in clausula.split()
+        and _RE_REABERTURA_DO_DIA.search(clausula) is not None
+        and dia in _dias_citados(clausula)
+    )
+
+
+def _dias_citados(clausula: str) -> set[str]:
+    """Os dias que a cláusula nomeia, já com o rótulo humano ("hj" -> "hoje", "terca" -> "terça")."""
+    return {_ROTULO_DO_DIA.get(d, d) for d in re.findall(rf"\b{_DIA_NOMEADO}\b", clausula)}
+
+
+def _dia_recusado_na_clausula(clausula: str) -> str | None:
+    """O dia que ESTA cláusula (já normalizada, já vetada) tira da mesa; None = nenhum.
+
+    Duas portas. A direta nomeia o dia e a impossibilidade na mesma cláusula ("tô lotado hoje",
+    "hoje eu realmente não consigo", "não hoje não") — o dia recusado é o citado. A indireta é o
+    "só amanhã"/"fica pra sexta": ele não diz "hoje" em lugar nenhum, mas empurrar o encontro para
+    OUTRO dia é recusar o de hoje, e é esse que volta.
+    """
+    citados = _dias_citados(clausula)
+    if citados and (
+        _TOKEN_DE_IMPOSSIBILIDADE.search(clausula) or _RE_NEGACAO_COLADA_NO_DIA.search(clausula)
+    ):
+        # Um só dia por cláusula na fala real; com mais de um, o primeiro citado é o recusado.
+        primeiro = re.search(rf"\b{_DIA_NOMEADO}\b", clausula)
+        return _ROTULO_DO_DIA.get(primeiro.group(0), primeiro.group(0)) if primeiro else None
+    outro = _RE_SO_OUTRO_DIA.search(clausula)
+    if outro is not None and _ROTULO_DO_DIA.get(outro.group(1), outro.group(1)) != "hoje":
+        return "hoje"
+    return None
 
 
 # Pergunta de horário SEM proposta ("Seria que horas ?", "Qual horário amor ?") — o empurrão que o
@@ -527,6 +912,12 @@ _RE_PEDIDO_DE_ENDERECO = re.compile(
     r"|\bproximo\s+(?:de\s+|a\s+)?onde\b"
     r"|\b(?:qual|que)\s+rua\b"
     r"|\bnao\s+conhec[oe]\b[^\n?]{0,20}\b(?:hotel|lugar|local|rua|endereco)\b"
+    # Campanha 13/08: "Tem local?" e "onde (a gente pode se) encontrar" sao pedidos inequivocos do
+    # PONTO e ficavam fora — com eles fora, o gatilho `endereco` do guard ficava desarmado no turno
+    # em que o cliente pede o ponto com a forma mais comum do corpus (eb02:91564424585333). Modelo
+    # sem endereco no cadastro nao arma o gatilho de qualquer forma (tokens_endereco vazio).
+    r"|\b(?:vc\s+|voce\s+)?tem\s+(?:local|lugar)\b"
+    r"|\bonde\b[^\n?]{0,30}\b(?:encontr(?:o|ar|amos)|nos\s+vemos|te\s+vejo)\b"
 )
 
 
@@ -560,12 +951,33 @@ _RE_PEDIDO_DE_INFOS = re.compile(
 )
 
 
+# Âncora do texto AUTOMÁTICO que o site gera na primeira mensagem do lead ("Peguei seu contato no
+# site X. Gostaria de informações sobre seu atendimento."). A <abertura> (regras.md.j2) manda SÓ
+# cumprimentar nessa âncora — mas o ramo "gostaria de informações" do _RE_PEDIDO_DE_INFOS casava o
+# mesmo template e o <proximo_passo> injetava "apresente completo de uma vez": duas instruções
+# opostas no MESMO prompt, em praticamente todo lead de site (campanha 13/08, eb02:26311003246742).
+# A bolha com a âncora não conta como pedido de infos; o que ele DIGITOU depois conta normalmente.
+_RE_ANCORA_DO_SITE = re.compile(
+    r"\b(?:peguei\s+(?:seu|o|teu)\s+(?:contato|numero)\s+no\s+site"
+    r"|vi\s+(?:seu|o|teu)\s+anuncio\s+no\s+site)\b"
+)
+
+
+def contem_ancora_do_site(texto: str) -> bool:
+    """True se a fala carrega a âncora do template automático do site (ver `_RE_ANCORA_DO_SITE`)."""
+    return _RE_ANCORA_DO_SITE.search(normalizar(texto)) is not None
+
+
 def contem_pedido_de_infos(texto: str) -> bool:
     """True se a fala do cliente pede a APRESENTAÇÃO ("como funciona?", "me passa as infos").
 
     `normalizar` antes do match: tira acento/caixa ("informações"). Alimenta o ponteiro
-    condicional de pitch no <proximo_passo> (prepare_context) — só cauda, nunca guard."""
-    return _RE_PEDIDO_DE_INFOS.search(normalizar(texto)) is not None
+    condicional de pitch no <proximo_passo> (prepare_context) — só cauda, nunca guard. A bolha
+    que carrega a âncora do site é template, não pedido dele (`contem_ancora_do_site`)."""
+    normalizado = normalizar(texto)
+    if _RE_ANCORA_DO_SITE.search(normalizado):
+        return False
+    return _RE_PEDIDO_DE_INFOS.search(normalizado) is not None
 
 
 # Saudação de PERÍODO ("bom dia"/"boa tarde"/"boa noite") — rodada 4 do eval: a IA respondia "Boa

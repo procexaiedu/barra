@@ -14,7 +14,7 @@ from psycopg import AsyncConnection
 
 from barra.core.metrics import AGENTE_ESCALADA
 from barra.dominio.escaladas.modelos import TipoEscalada
-from barra.dominio.escaladas.service import abrir_handoff, mapear_bucket
+from barra.dominio.escaladas.service import abrir_handoff, fase_do_atendimento, mapear_bucket
 
 ACAO_ASSUMIR = "Assumir a conversa com o cliente."
 
@@ -33,6 +33,7 @@ async def escalar_defesa(
     `metric_key` e o rotulo da metrica e cai em `observacao` quando nao informado — o output_guard
     usa um rotulo mais grosso (`output_leak`/`aup_saida`) que a observacao granular.
     """
+    fase = await fase_do_atendimento(conn, UUID(atendimento_id))
     await abrir_handoff(
         conn,
         atendimento_id=UUID(atendimento_id),
@@ -45,4 +46,4 @@ async def escalar_defesa(
         observacao=observacao,
     )
     chave = metric_key or observacao
-    AGENTE_ESCALADA.labels(mapear_bucket(chave), chave).inc()
+    AGENTE_ESCALADA.labels(mapear_bucket(chave), chave, fase).inc()

@@ -156,4 +156,4 @@ async def test_motivo_modelo_indisponivel_mapeia_bucket_infra() -> None:
     assert kwargs["tipo"] == TipoEscalada.outro
     assert kwargs["responsavel"] == "Fernando"
     assert kwargs["observacao"] == "modelo_indisponivel"
-    mock_metric.labels.assert_called_once_with("infra", "modelo_indisponivel")
+    mock_metric.labels.assert_called_once_with("infra", "modelo_indisponivel", "Triagem")

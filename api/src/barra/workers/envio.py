@@ -58,6 +58,7 @@ from barra.dominio.escaladas.service import (
     ESTADOS_TERMINAIS,
     abrir_handoff,
     card_escalada_vai_ao_grupo,
+    fase_do_atendimento,
     mapear_bucket,
 )
 from barra.settings import get_settings
@@ -912,6 +913,7 @@ async def _bloquear_envio(
         )
         return
     async with pool.connection() as conn:
+        fase = await fase_do_atendimento(conn, atend)
         await abrir_handoff(
             conn,
             atendimento_id=atend,
@@ -923,7 +925,7 @@ async def _bloquear_envio(
             autor="sistema",
             observacao=observacao,
         )
-    AGENTE_ESCALADA.labels(mapear_bucket(observacao), observacao).inc()
+    AGENTE_ESCALADA.labels(mapear_bucket(observacao), observacao, fase).inc()
 
 
 async def _aplicar_saida_guard(

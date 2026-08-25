@@ -156,6 +156,29 @@ async def test_escalada_do_turno_sem_bolha_ganha_a_espera_canned() -> None:
     assert espera.usage_metadata is not None  # gerada NESTE turno -> o coordenador despacha
 
 
+async def test_escalada_com_tool_call_apagado_ainda_ganha_a_espera_canned() -> None:
+    """Campanha 13/08 (eb02:21123135741957 t12): quando um zeramento anterior já descartou os
+    `tool_calls` das AIMessages (design de `_KWARGS_DE_TOOL_CALL`), o `corte` não acha o `escalar`
+    e a escalada saía MUDA — o rastro que sobrevive é a ToolMessage de sucesso da tool."""
+    from barra.agente.ferramentas.escalada import ESCALADA_ABERTA_PREFIXO
+
+    state = {
+        "messages": [
+            HumanMessage(content="queria mais tempo", id="h1"),
+            _ai_turno("", "a1"),  # tool_calls já apagados por um zeramento anterior
+            ToolMessage(
+                content=f"{ESCALADA_ABERTA_PREFIXO}modelo. Próxima fala virá quando devolverem.",
+                id="t1",
+                tool_call_id="tc1",
+            ),
+            _ai_turno("", "a2"),
+        ]
+    }
+    out = await mod.post_process(state, _runtime(ia_pausada=True))  # type: ignore[arg-type]
+    espera = out["messages"][-1]
+    assert espera.content in ESPERA_ESCALADA_CANNED
+
+
 async def test_escalada_conteudo_ilegal_nao_ganha_bolha_de_espera() -> None:
     """`conteudo_ilegal`: "um momento" depois de um pedido desses lê como "deixa eu ver se
     consigo" — flertar com a ideia. A recusa seca é a única bolha; nenhum canned entra."""

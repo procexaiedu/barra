@@ -172,7 +172,7 @@ async def test_motivo_teto_turnos_mapeia_bucket_capacidade() -> None:
     assert kwargs["tipo"] == TipoEscalada.outro
     assert kwargs["responsavel"] == "Fernando"
     assert kwargs["observacao"] == "teto_turnos"
-    mock_metric.labels.assert_called_once_with("capacidade", "teto_turnos")
+    mock_metric.labels.assert_called_once_with("capacidade", "teto_turnos", "Triagem")
 
 
 @pytest.mark.parametrize(

@@ -38,6 +38,10 @@ def _row_palpite(**sobrescreve: Any) -> dict[str, Any]:
         "horario_evidenciado": False,
         "aviso_saida_em": None,
         "pix_status": "nao_solicitado",
+        # A guarda le a conversa para checar a proveniencia da hora nova (`_hora_saiu_da_boca_dela`,
+        # 14/08). None = sem historico persistido: sobra so a fala do turno, que estes casos nao
+        # passam — o ramo do PALPITE que este arquivo pina segue decidido pelos mesmos criterios.
+        "conversa_id": None,
     }
     base.update(sobrescreve)
     return base

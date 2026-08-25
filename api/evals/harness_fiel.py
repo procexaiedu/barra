@@ -41,7 +41,7 @@ from datetime import datetime
 from time import perf_counter
 from typing import Any
 from unittest.mock import patch
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fakeredis.aioredis import FakeRedis
 from langchain_core.messages import BaseMessage
@@ -60,7 +60,9 @@ from evals.harness import (
     ResultadoTurno,
     _coletar_tools,
     _inserir_mensagem,
+    _mesclar_tools,
     _metricas_tokens,
+    _tools_do_banco,
     carimbos_do_estado,
     estado_pos_turno,
 )
@@ -378,6 +380,49 @@ def _trace_id_do_turno(turno_ids: list[str]) -> str | None:
     return str(Langfuse.create_trace_id(seed=turno_ids[0]))
 
 
+async def _escaladas_abertas(
+    conn: AsyncConnection[dict[str, Any]], atendimento_id: UUID
+) -> set[str]:
+    """IDs das escaladas ABERTAS do atendimento. Fotografado antes e depois do turno."""
+    res = await conn.execute(
+        "SELECT id FROM barravips.escaladas WHERE atendimento_id = %s AND fechada_em IS NULL",
+        (atendimento_id,),
+    )
+    return {str(r["id"]) for r in await res.fetchall()}
+
+
+async def _escalada_nova(
+    conn: AsyncConnection[dict[str, Any]], atendimento_id: UUID, antes: set[str]
+) -> str | None:
+    """`observacao` da escalada que NASCEU neste turno, ou None se nenhuma nasceu.
+
+    Existe pelas escaladas que o COORDENADOR abre fora do grafo (`escalar_por_exaustao`), que nao
+    deixam rastro nenhum em `messages`: nem tool_call, nem ToolMessage, nem bolha (por design —
+    07 §3.3, handoff sem mensagem ao cliente). Sem este carimbo, um APITimeoutError do provider
+    chegava a regua de silencio como "turno mudo + pausa externa" — infra medida como conduta.
+
+    Discrimina por ID NOVO, nunca por `aberta_em`: o rig roda o caso inteiro numa transacao e o
+    `now()` do default e CONSTANTE dentro dela, entao a escalada do turno 5 tem o mesmo timestamp
+    da do turno 1 e uma janela temporal nao separa nada.
+
+    None tambem quando o `abrir_handoff` foi no-op pela idempotencia (escalada ja aberta): a pausa
+    e HERDADA e ja foi julgada no turno que a abriu — mesmo criterio de `_turno_nao_processado`.
+    `observacao` e onde `escalar_por_exaustao` grava o motivo literal (`modelo_indisponivel`,
+    `timeout_grafo`, ...); NULL na escalada aberta por outro caminho que nao o preencheu.
+    """
+    res = await conn.execute(
+        """
+        SELECT id, observacao, motivo FROM barravips.escaladas
+         WHERE atendimento_id = %s AND fechada_em IS NULL
+        """,
+        (atendimento_id,),
+    )
+    for r in await res.fetchall():
+        if str(r["id"]) not in antes:
+            return str(r["observacao"] or r["motivo"] or "")
+    return None
+
+
 async def rodar_turno_auditado(
     conn: AsyncConnection[dict[str, Any]],
     cen: Cenario,
@@ -402,6 +447,7 @@ async def rodar_turno_auditado(
     `trace_id` e recalculado do `turno_id` (ver `_trace_id_do_turno`).
     """
     auditado = GraphAuditado(graph or build_graph())
+    antes = await _escaladas_abertas(conn, cen.atendimento_id)
     t0 = perf_counter()
     res = await rodar_turno_fiel(
         conn,
@@ -412,8 +458,13 @@ async def rodar_turno_auditado(
         aguardar_transcricao=aguardar_transcricao,
     )
     latencia = perf_counter() - t0
+    escalada = await _escalada_nova(conn, cen.atendimento_id, antes)
 
-    nomes, args = _coletar_tools(auditado.mensagens)
+    # Verdade do que EXECUTOU = `barravips.tool_calls` (o guard clona as AIMessages sem tool_calls
+    # ao regenerar). Todos os `turno_id` das invocacoes do drain, na mesma conn, antes do ROLLBACK.
+    nomes, args = _mesclar_tools(
+        _coletar_tools(auditado.mensagens), await _tools_do_banco(conn, auditado.turno_ids)
+    )
     metricas = _metricas_tokens(auditado.mensagens, get_settings().usd_brl_cotacao)
     metricas.latencia_s = latencia
     return ResultadoTurno(
@@ -431,4 +482,5 @@ async def rodar_turno_auditado(
         metricas=metricas,
         trace_id=_trace_id_do_turno(auditado.turno_ids),
         estado_grafo=dict(auditado.carimbos),
+        escalada_do_turno=escalada,
     )

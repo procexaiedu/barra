@@ -68,6 +68,10 @@ def _registro(perfil: Any, res: Any, ver: Any) -> dict[str, Any]:
         "conduziu": ver.conduziu,
         "violacoes": list(ver.violacoes),
         "anotacoes": list(ver.anotacoes),
+        # `getattr` como no `eixo_comportamento` acima: `_registro` e duck-typed de proposito
+        # (`ver: Any`) e recebe tanto o VeredictoE2E quanto vereditos montados a mao/serializados
+        # de corridas antigas, que nao tem o campo. Ausente == None == "corrida nao abortou".
+        "invalida_por_infra": getattr(ver, "invalida_por_infra", None),
         "conduta": ver.conduta.to_dict() if ver.conduta else None,
         "n_turnos": res.n_turnos,
         "custo_brl": round(res.custo_brl, 6),

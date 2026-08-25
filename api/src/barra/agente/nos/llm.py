@@ -4,8 +4,10 @@ No real -- chama o chat principal (#1) bindado com as tools e roteia por Command
     e DeepSeek V4 Flash direto via ChatOpenAI (criar_chat_deepseek); o no le motivo de parada/nome
     do modelo de forma unificada (motivo_parada/nome_modelo, core.llm) -- codigo provider-agnostico,
     nao campos crus do provider. Sem modelo de
-    fallback: 429/5xx/timeout sobem como excecao (retry ja foi do SDK, max_retries) e, na exaustao,
-    escalam para Fernando via escalar_por_exaustao (TODO M3f; 01 §2.6). O check de parada
+    fallback: 429/5xx/timeout sobem como excecao — o `max_retries` do SDK esta em 0 (ver
+    `tentativas_que_cabem_no_turno`), entao quem retenta 429/5xx e o `_invocar_chat` daqui, contra o
+    deadline do turno — e, na exaustao, escalam para Fernando via escalar_por_exaustao (TODO M3f;
+    01 §2.6). O check de parada
     (refusal/max_tokens chegam em 200 OK, nao como excecao) vive dentro do try/except. Sem effort
     hibridizado por turno (removido, 03 §6.2.1); a classificacao de disclosure roda no
     prepare_context sobre a janela (03 §7), nao no webhook.
@@ -16,10 +18,13 @@ Roteamento (02 §4.1): tem tool_calls -> loop ReAct (`tools`); tool_use truncado
     A `registrar_extracao` NAO esta em `TOOLS` -- o chat #1 nunca a chama; a extracao e um no proprio.
 """
 
+import asyncio
 import logging
 from collections.abc import Coroutine, Sequence
+from time import monotonic
 from typing import Any, Literal, Protocol
 
+import httpx
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, ToolMessage
 from langchain_core.tools import BaseTool
@@ -64,6 +69,78 @@ _PARADA_RECUSA = PARADA_RECUSA
 # de o no fechar em texto. 2 = a modelo tentou 2 tags/tipos e nenhuma tinha midia -> nao ha o que
 # enviar; fechar agora poupa os ~7 super-steps restantes ate o recursion_limit.
 _LIMIAR_MIDIA_FALHA = 2
+
+# --- Deadline duro + retry seletivo do chat #1 -------------------------------------------------
+#
+# Dois buracos que o `timeout`/`max_retries` do SDK nao fecham, e que se resolvem no MESMO ponto (o
+# `ainvoke`):
+#
+# 1. `llm_timeout_s` NAO e deadline total. O DeepSeek, em requisicao NAO-streaming, "continuously
+#    sends empty lines" enquanto espera a inferencia comecar (api-docs `quick_start/rate_limit`; so
+#    fecha a conexao apos 10 min sem inferencia). O `timeout=40.0` da factory vira `httpx.Timeout(40)`,
+#    cujo read timeout conta o intervalo ENTRE chunks — com keep-alive chegando ele nunca dispara. A
+#    desigualdade `llm_timeout_s < turno_timeout_s` (r3), que existe para o turno morrer DENTRO do
+#    grafo, some em silencio nesse cenario: quem mata passa a ser o `wait_for` do coordenador, por
+#    fora, virando `timeout_grafo` -> handoff terminal, cliente sem bolha. O `wait_for` abaixo, contra
+#    o deadline do turno, e o mesmo padrao que o output_guard ja aplica no judge e na regen.
+# 2. `max_retries` esta em ZERO. `tentativas_que_cabem_no_turno` (core/llm.py) o derruba para 0 com
+#    40/60 — correto para timeout, que consome o orcamento inteiro, mas ele nao distingue POR TIPO:
+#    um 429/503 volta em milissegundos e hoje mata o turno com ~20s de orcamento intactos. A doc
+#    (`quick_start/error_codes`) prescreve "retry after a brief wait" justamente para 500/503.
+_URL_CHAT_DEEPSEEK = "https://api.deepseek.com/chat/completions"
+# Status que a doc manda retentar. 400/401/402/422 ficam de fora de proposito: payload invalido,
+# chave errada e saldo zerado nao melhoram na segunda tentativa — so queimam o orcamento do turno.
+_STATUS_RETENTAVEIS = frozenset({429, 500, 502, 503, 504})
+_MAX_RETRY_PROVIDER = 2
+_BACKOFF_RETRY_S = 0.5
+# Piso para RETENTAR (nunca para a 1a tentativa): com thinking low o chat mede p95 18-25s, entao
+# reabrir uma chamada com menos que isto no relogio so garante a morte por timeout — melhor levantar
+# agora e deixar o coordenador escalar `modelo_indisponivel` com tempo de sobra.
+_CHAT_MIN_S = 18.0
+
+
+async def _invocar_chat(
+    chat: Any, messages: Sequence[BaseMessage], *, deadline_mono: float | None, turno_id: str
+) -> Any:
+    """`ainvoke` do chat #1 sob o deadline do TURNO, com retry seletivo de 429/5xx.
+
+    `deadline_mono=None` (fakes de teste, rigs sem coordenador) -> comportamento antigo, sem
+    `wait_for` e sem retry: nao ha relogio de turno contra o qual medir.
+
+    O `TimeoutError` do `wait_for` vira `APITimeoutError` de proposito. Ele ja e o vocabulario que
+    `_EXCECOES_LLM` e o coordenador leem para classificar `modelo_indisponivel` (bucket infra); solto,
+    o `TimeoutError` subiria ate o `except TimeoutError` do coordenador e seria contado como
+    `timeout_grafo` — o rotulo de "o grafo estourou", que e exatamente o diagnostico errado quando
+    quem estourou foi a chamada e nos a matamos dentro do prazo.
+    """
+    tentativa = 0
+    while True:
+        restante = None if deadline_mono is None else max(0.0, deadline_mono - monotonic())
+        try:
+            if restante is None:
+                return await chat.ainvoke(messages)
+            return await asyncio.wait_for(chat.ainvoke(messages), timeout=restante)
+        except TimeoutError as exc:
+            raise APITimeoutError(request=httpx.Request("POST", _URL_CHAT_DEEPSEEK)) from exc
+        except APIStatusError as exc:  # RateLimitError e subclasse — cobre 429 junto com os 5xx
+            sobra = None if deadline_mono is None else deadline_mono - monotonic()
+            if (
+                tentativa >= _MAX_RETRY_PROVIDER
+                or exc.status_code not in _STATUS_RETENTAVEIS
+                or sobra is None
+                or sobra < _CHAT_MIN_S + _BACKOFF_RETRY_S
+            ):
+                raise
+            tentativa += 1
+            espera = _BACKOFF_RETRY_S * tentativa
+            logger.warning(
+                "chat retenta status=%s tentativa=%d (turno_id=%s sobra=%.1fs)",
+                exc.status_code,
+                tentativa,
+                turno_id,
+                sobra,
+            )
+            await asyncio.sleep(espera)
 
 
 def _midias_falharam_no_turno(messages: Sequence[BaseMessage]) -> int:
@@ -144,7 +221,12 @@ def no_llm(
             # vindo de uma passagem ANTERIOR do ReAct (este ramo exige >=2 enviar_midia falhadas).
             cancelar(state.get("_extracao_task"))
             with medir_llm("chat"):
-                resp = await chat_sem_tool_call.ainvoke(state["messages"])
+                resp = await _invocar_chat(
+                    chat_sem_tool_call,
+                    state["messages"],
+                    deadline_mono=runtime.context.turno_deadline_mono,
+                    turno_id=runtime.context.turno_id,
+                )
             instrumentar_tokens(resp, modelo_chat)
             return Command(
                 goto="post_process",
@@ -187,7 +269,12 @@ def no_llm(
         try:
             try:
                 with medir_llm("chat"):
-                    resp = await chat_bound.ainvoke(state["messages"])
+                    resp = await _invocar_chat(
+                        chat_bound,
+                        state["messages"],
+                        deadline_mono=runtime.context.turno_deadline_mono,
+                        turno_id=runtime.context.turno_id,
+                    )
                 instrumentar_tokens(resp, modelo_chat)
                 # motivo de parada chega num 200 OK, nao como excecao. Lido provider-agnostico
                 # (finish_reason OpenAI/DeepSeek | stop_reason legado) via motivo_parada:

@@ -14,6 +14,7 @@ atendimento; a duração efetiva o pré-cálculo não conhece, e a reserva re-va
 from datetime import datetime, timedelta
 from typing import Any
 
+from barra.dominio.agenda.service import buffer_do_bloqueio_min
 from barra.dominio.modelos.disponibilidade import sessoes_disponibilidade
 
 from ._proximo_livre import _arredonda_meia_hora_acima
@@ -38,12 +39,19 @@ def janelas_livres(
     inteiro em vez de a um ponto. O início de cada janela sobe pra próxima meia-hora (fala social);
     o fim é o instante em que o próximo compromisso — ou o expediente — fecha, sem arredondar (para
     baixo perderia minutos reais; para cima ofereceria o que não existe).
+
+    O buffer é POR BLOCO (emenda ADR 0025, 2026-08-14): o bloco `externo` alarga por
+    `agenda_buffer_externo_min` (a viagem até a casa do cliente e a volta), os demais e o bloco sem
+    tipo seguem em `buffer_min`. Mesma função (`buffer_do_bloqueio_min`) do `proximo_livre` e do
+    gate da reserva — janela oferecida que a reserva recusa é o bug que esta simetria evita.
     """
-    buffer = timedelta(minutes=buffer_min)
     livres: list[tuple[datetime, datetime]] = []
     for sessao in sessoes_disponibilidade(regras_disp, inicio, fim):
         pedacos = [sessao]
         for bloco in blocos:
+            buffer = timedelta(
+                minutes=buffer_do_bloqueio_min(bloco.get("tipo_atendimento"), buffer_min=buffer_min)
+            )
             ocupado_ini, ocupado_fim = bloco["inicio"] - buffer, bloco["fim"] + buffer
             restantes: list[tuple[datetime, datetime]] = []
             for p_ini, p_fim in pedacos:

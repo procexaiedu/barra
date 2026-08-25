@@ -29,6 +29,7 @@ from langgraph.graph import END
 from barra.agente._canned import NEGACOES_CANNED
 from barra.agente._texto_turno import raciocinio_do_turno
 from barra.agente.contexto import ContextAgente
+from barra.agente.ferramentas.escalada import ESCALADA_ABERTA_PREFIXO
 from barra.settings import get_settings
 
 # nos/__init__ reexporta a funcao output_guard, sombreando o submodulo; importlib pega o modulo
@@ -441,7 +442,11 @@ async def test_leak_persistiu_na_regen_bloqueia_e_zera_tudo(monkeypatch: Any) ->
     assert msgs["a1"] == "" and msgs["regen1"] == ""  # nada sai ao cliente, nem a regen
 
 
-async def test_repeticao_persistiu_na_regen_fica_mudo_sem_handoff(monkeypatch: Any) -> None:
+async def test_repeticao_persistiu_na_regen_passa_pelo_piso_anti_mudo(monkeypatch: Any) -> None:
+    """Bolha UNICA repetida + regen reincidente: ate 14/08 o turno fechava MUDO (este teste pinava
+    `msgs["a1"] == ""`). O piso anti-mudo (corrida c12, 5 turnos mudos em 327) inverteu a saida:
+    `repeticao` e QUALIDADE, e silencio total e pior que eco — a bolha original passa, com a
+    regen inutilizavel zerada e metrica propria. Handoff continua fora de questao."""
     cap = _Capturador()
     monkeypatch.setattr(mod_defesa, "abrir_handoff", cap)
     _judge_ok(monkeypatch)
@@ -455,7 +460,8 @@ async def test_repeticao_persistiu_na_regen_fica_mudo_sem_handoff(monkeypatch: A
     assert res.goto == END
     assert not cap.chamadas  # repeticao NUNCA vira handoff: silencio > papagaio
     msgs = _msgs_update(res)
-    assert msgs["a1"] == "" and msgs["regen1"] == ""
+    assert "a1" not in msgs  # a bolha original segue viva
+    assert msgs["regen1"] == ""
 
 
 async def test_sonda_persistiu_na_regen_dropa_so_o_probe(monkeypatch: Any) -> None:
@@ -663,6 +669,32 @@ async def test_regenerar_recusa_ou_excecao_devolve_none(monkeypatch: Any) -> Non
     assert (
         await mod._regenerar(
             state["messages"], rascunho="x", gatilho="leak", settings=get_settings()
+        )
+        is None
+    )
+
+
+async def test_regenerar_sem_orcamento_nem_chama_o_provider(monkeypatch: Any) -> None:
+    """Campanha 13/08: a regen roda por último e herda o que sobrou do teto do turno (60s). Com o
+    prazo já consumido (regen custaria mais que o restante menos a reserva do judge), ela devolve
+    None SEM chamar o LLM — o fallback determinístico do gatilho é melhor que uma chamada que faz
+    o turno morrer por fora do grafo (mute + escalada por exaustão)."""
+    from time import monotonic
+
+    mod_llm = importlib.import_module("barra.core.llm")
+
+    def _nunca(*a: Any, **kw: Any) -> Any:
+        raise AssertionError("nao deveria chamar o provider sem orcamento")
+
+    monkeypatch.setattr(mod_llm, "criar_chat_deepseek", _nunca)
+    state = _state("é 400 a 1h no meu local")
+    assert (
+        await mod._regenerar(
+            state["messages"],
+            rascunho="x",
+            gatilho="repeticao",
+            settings=get_settings(),
+            deadline_mono=monotonic() + mod._RESERVA_POS_REGEN_S + mod._REGEN_MIN_S - 1.0,
         )
         is None
     )
@@ -1347,7 +1379,7 @@ def test_feedback_de_repeticao_cola_a_bolha_e_nomeia_a_saida() -> None:
     msg = _feedback_repeticao(["Consigo às 17h, fecha ?"])
 
     assert "Consigo às 17h, fecha ?" in msg, "o modelo tem de ver O QUE não passou, não um rótulo"
-    assert "outras palavras" in msg, "reformular é justamente o que não resolve"
+    assert "outras palavras" in msg, "a FUNÇÃO volta com outras palavras; a forma não volta"
     assert "FALTA" in msg, "a saída tem de ser nomeada: avance pelo que ainda falta"
 
 
@@ -1356,6 +1388,84 @@ def test_feedback_de_repeticao_sem_bolha_cai_na_razao_estatica() -> None:
 
     assert _feedback_repeticao([]) == _FEEDBACK_GATILHO["repeticao"]
     assert _feedback_repeticao(["   "]) == _FEEDBACK_GATILHO["repeticao"]
+
+
+# --- feedback de repetição: a FORMA não volta, a FUNÇÃO sim (trace 13/08, "e por 280?") ----------
+#
+# Turno certo pelo domínio (defesa do valor + empurrão de hora na mesma mensagem, o que
+# `regras.md.j2:160` cobra) virou turno jogado fora: a bolha do empurrão era verbatim a de um turno
+# anterior -> gatilho `repeticao` -> a regen recebeu um "não repita" que não dizia O QUE não repetir
+# -> repetiu -> o fallback dropou a bolha e sobrou a defesa solta ("Poxa amor / Esse é o meu valor").
+_DEFESA = "Poxa amor, esse é o meu valor rs"
+_EMPURRAO_REPETIDO = "Consigo às 23h, fecha ?"
+_EMPURRAO_REFORMULADO = "Te espero hoje às 23h então, pode ser ?"
+
+
+def test_feedback_de_repeticao_cita_as_bolhas_e_manda_manter_a_funcao() -> None:
+    """(a) O feedback cita a(s) bolha(s) literalmente e prescreve a INTENÇÃO: função devida."""
+    msg = mod._feedback_repeticao([_EMPURRAO_REPETIDO])
+
+    assert f'"{_EMPURRAO_REPETIDO}"' in msg, "a bolha vetada vai colada, palavra por palavra"
+    assert "palavra por palavra" in msg
+    assert "FUNCAO" in msg, "a função da bolha continua devida -- é o que faltava ser dito"
+    assert "proximo passo tem de" in msg, "o próximo passo tem de reaparecer, dito de outro jeito"
+    assert "trocar so o final" in msg, "reformular só a cauda reincide no `_mesma_abertura`"
+    assert "Turno vazio" in msg, "silêncio segue vetado (a pior saída medida no shadow)"
+    # Intenção, nunca fala pronta: o feedback não entrega frase de persona para copiar.
+    assert "Consigo às" not in msg.replace(_EMPURRAO_REPETIDO, "")
+
+
+def test_feedback_de_repeticao_cita_todas_as_ofensoras() -> None:
+    """Com duas ofensoras o modelo via só a primeira e reincidia na outra."""
+    msg = mod._feedback_repeticao([_EMPURRAO_REPETIDO, "A 2h fica 700 amor"])
+
+    assert _EMPURRAO_REPETIDO in msg and "A 2h fica 700 amor" in msg
+
+
+def test_feedback_novo_nao_vaza_para_os_outros_gatilhos() -> None:
+    """A conduta da FUNÇÃO é da repetição e só dela (gatilho genérico desfaz decisão de outro nó)."""
+    outros = [v for k, v in mod._FEEDBACK_GATILHO.items() if k != "repeticao"]
+    assert all("FUNCAO" not in v for v in outros)
+    assert "FUNCAO" not in mod._FEEDBACK_GATILHO["repeticao"], "a razão estática segue enxuta"
+
+
+async def test_regen_reformulada_mantem_defesa_e_empurrao(monkeypatch: Any) -> None:
+    """(b) Regen que muda a FORMA e mantém a FUNÇÃO passa: o turno sai com defesa + empurrão."""
+    cap = _Capturador()
+    monkeypatch.setattr(mod_defesa, "abrir_handoff", cap)
+    _judge_ok(monkeypatch)
+    nova = f"{_DEFESA}\n\n{_EMPURRAO_REFORMULADO}"
+    regen = _fake_regen(nova)
+    monkeypatch.setattr(mod, "_regenerar", regen)
+
+    res = await mod.output_guard(  # type: ignore[arg-type]
+        _state(f"{_DEFESA}\n\n{_EMPURRAO_REPETIDO}", historico=[_EMPURRAO_REPETIDO]),
+        _runtime(),
+    )
+
+    chamada = regen.chamadas[0]
+    assert chamada["gatilho"] == "repeticao"
+    assert _EMPURRAO_REPETIDO in chamada["feedback_gatilho"], "a bolha vetada vai citada na regen"
+    msgs = _msgs_update(res)
+    assert msgs["a1"] == ""
+    assert msgs["regen1"] == nova, "a bolha reformulada sobrevive ao re-scan"
+    assert not cap.chamadas
+
+
+async def test_regen_reincidente_ainda_dropa_a_bolha(monkeypatch: Any) -> None:
+    """(c) A POLÍTICA não mudou: reincidiu igual -> drop da ofensora (silêncio > papagaio)."""
+    _judge_ok(monkeypatch)
+    regen = _fake_regen(f"{_DEFESA}\n\n{_EMPURRAO_REPETIDO}")  # idêntica de novo
+    monkeypatch.setattr(mod, "_regenerar", regen)
+
+    res = await mod.output_guard(  # type: ignore[arg-type]
+        _state(f"{_DEFESA}\n\n{_EMPURRAO_REPETIDO}", historico=[_EMPURRAO_REPETIDO]),
+        _runtime(),
+    )
+
+    msgs = _msgs_update(res)
+    assert msgs["a1"] == ""
+    assert msgs["regen1"] == _DEFESA, "o fallback segue dropando a bolha repetida"
 
 
 async def test_drop_por_repeticao_ainda_dropa_o_preco_fantasma_da_outra_bolha(
@@ -1424,3 +1534,223 @@ def test_hora_nova_na_mesma_forma_de_pergunta_nao_e_papagaio() -> None:
     # tem numero e diferem" -- senao a bolha que finalmente CRAVA o horario cairia no fechamento.
     vaga = ["Consigo te encaixar hoje a noite, fecha ?"]
     assert mod.bolhas_repetidas("Consigo te encaixar hoje a noite as 21h, fecha ?", vaga) == []
+
+
+# --- rede do vazio: regen vazia 2x nao pode emudecer um turno com bolhas boas (13/08) ------------
+
+
+async def test_regen_vazia_2x_preserva_bolhas_boas_do_original(monkeypatch: Any) -> None:
+    """Mecanismo do duvida_das_fotos t4 (campanha 13/08): o papagaio flagra UMA bolha do turno
+    ("Sou eu mesma..."), a regen da t1 devolve VAZIO e a recuperacao do mudo tambem — antes o
+    turno fechava MUDO, jogando fora a bolha boa nao-flagrada. A rede deterministica resgata o
+    original menos a ofensora."""
+    _judge_ok(monkeypatch)
+    regen = _fake_regen_seq(["", ""])
+    monkeypatch.setattr(mod, "_regenerar", regen)
+
+    fresca = "consegue chegar aqui pra que horas amor?"
+    res = await mod.output_guard(  # type: ignore[arg-type]
+        _state(f"{_BOLHA_LONGA}\n\n{fresca}", historico=[_BOLHA_LONGA]), _runtime()
+    )
+
+    assert res.goto == END
+    assert [c["gatilho"] for c in regen.chamadas] == ["repeticao", "mudo"]
+    msgs = _msgs_update(res)
+    assert msgs["a1"] == fresca  # a bolha boa sobrevive na PROPRIA mensagem original
+    assert msgs["regen1"] == ""  # a regen vazia sai zerada (usage preservado, sem fala)
+
+
+async def test_regen_reincidiu_e_drop_esvaziou_preserva_bolhas_boas(monkeypatch: Any) -> None:
+    """Variante: a regen da t1 devolve a MESMA bolha repetida (reincide), o drop da t2 esvazia o
+    texto da regen e a recuperacao devolve vazio — o fallback nao pode perder o original."""
+    _judge_ok(monkeypatch)
+    regen = _fake_regen_seq([_BOLHA_LONGA, ""])
+    monkeypatch.setattr(mod, "_regenerar", regen)
+
+    fresca = "consegue chegar aqui pra que horas amor?"
+    res = await mod.output_guard(  # type: ignore[arg-type]
+        _state(f"{_BOLHA_LONGA}\n\n{fresca}", historico=[_BOLHA_LONGA]), _runtime()
+    )
+
+    assert res.goto == END
+    assert [c["gatilho"] for c in regen.chamadas] == ["repeticao", "mudo"]
+    msgs = _msgs_update(res)
+    assert msgs["a1"] == fresca
+    assert msgs["regen1"] == ""
+
+
+async def test_todas_flagradas_e_regen_vazia_2x_fecha_mudo(monkeypatch: Any) -> None:
+    """TODAS as bolhas do original flagradas + regen vazia 2x: nao ha o que resgatar — o mudo
+    fica (silencio > papagaio; nao existe canned generica de venda no pool curado)."""
+    _judge_ok(monkeypatch)
+    regen = _fake_regen_seq(["", ""])
+    monkeypatch.setattr(mod, "_regenerar", regen)
+
+    res = await mod.output_guard(  # type: ignore[arg-type]
+        _state(_BOLHA_LONGA, historico=[_BOLHA_LONGA]), _runtime()
+    )
+
+    assert res.goto == END
+    assert [c["gatilho"] for c in regen.chamadas] == ["repeticao", "mudo"]
+    msgs = _msgs_update(res)
+    assert all(not str(c).strip() for c in msgs.values())
+
+
+def _state_pos_escalada(texto: str, historico: list[str] | None = None) -> dict[str, Any]:
+    """Turno que chamou `escalar` no MEIO: a ToolMessage de sucesso e o rastro deterministico da
+    escalada aberta (ToolMessages nunca sao reescritas e as historicas nao voltam ao contexto), e a
+    bolha pre-tool foi PRESERVADA pelo corte do post_process (post_process.py:76-86)."""
+    msgs: list[BaseMessage] = list(_state(texto, historico)["messages"])
+    msgs.insert(
+        len(msgs) - 1,
+        ToolMessage(
+            content=f"{ESCALADA_ABERTA_PREFIXO}Fernando. Próxima fala virá quando ele responder.",
+            tool_call_id="tc1",
+            id="t1",
+        ),
+    )
+    return {"messages": msgs}
+
+
+async def test_pos_escalada_rede_do_vazio_nao_ressuscita_o_turno(monkeypatch: Any) -> None:
+    """Turno com escalada ABERTA (rastro `ESCALADA_ABERTA_PREFIXO` na ToolMessage): a rede do
+    vazio tem de ficar de fora por precedencia — ressuscitar fala de venda depois da escalada e o
+    bug de eb02:21123135741957 t12. O turno fecha mudo, como antes.
+
+    O gatilho aqui e de SEGURANCA (`preco` fantasma): esse trilho continua valendo com escalada
+    aberta — so os de QUALIDADE ficam de fora (ver os testes do c10, logo abaixo)."""
+    _judge_ok(monkeypatch)
+    regen = _fake_regen_seq(["", ""])
+    monkeypatch.setattr(mod, "_regenerar", regen)
+
+    fresca = "consegue chegar aqui pra que horas amor?"
+    # Tabela do fake = 400 1h; 750 e fantasma.
+    estado = _state_pos_escalada(f"Fica 750 1h amor\n\n{fresca}")
+    res = await mod.output_guard(estado, _runtime_cardapio())  # type: ignore[arg-type]
+
+    assert res.goto == END
+    assert regen.chamadas and regen.chamadas[0]["gatilho"] == "preco"  # seguranca ainda age
+    msgs = _msgs_update(res)
+    assert all(not str(c).strip() for c in msgs.values())
+
+
+# --- escalada aberta: gatilho de QUALIDADE nao arma, o de SEGURANCA sim (c10, campanha 13/08) ----
+
+
+async def test_pos_escalada_repeticao_nao_roda_o_loop_de_regen(monkeypatch: Any) -> None:
+    """c10 `encaixe_apos_o_atual`: a IA chamou `escalar` no meio do turno e o post_process
+    PRESERVOU a bolha pre-tool (por design — ela e a fala que acompanha a escalada). O guard lia
+    essa bolha como papagaio da cotacao ja dita e rodava a regen na tentativa 1: fala de VENDA
+    reescrita depois de a escalada estar aberta, e o dado bom ("19:30") perdido no caminho.
+    Mesma familia de `silencio_modelo` e da rede do vazio, entrando por porta nova."""
+    _judge_ok(monkeypatch)
+    regen = _fake_regen("Me confirma o horario amor ?")
+    monkeypatch.setattr(mod, "_regenerar", regen)
+
+    bolha = "Consigo te encaixar às 19:30 amor, fecha ?"
+    res = await mod.output_guard(  # type: ignore[arg-type]
+        _state_pos_escalada(bolha, historico=[bolha]), _runtime()
+    )
+
+    assert res.goto == END
+    assert not regen.chamadas  # o loop de regen nem comeca
+    assert not _msgs_update(res)  # nada zerado/dropado: a bolha do corte sai como esta
+
+
+async def test_pos_escalada_sonda_tambem_nao_arma(monkeypatch: Any) -> None:
+    """A porta e a CLASSE, nao o gatilho: `sonda` (estilo, como `pedagio`/`saudacao`) tambem fica
+    de fora — `promessa_midia` e `despedida` ja ficavam."""
+    _judge_ok(monkeypatch)
+    regen = _fake_regen("Tudo bem sim amor 🥰")
+    monkeypatch.setattr(mod, "_regenerar", regen)
+
+    res = await mod.output_guard(  # type: ignore[arg-type]
+        _state_pos_escalada("Tudo bem sim amor 🥰\n\nO que você procura ?"), _runtime()
+    )
+
+    assert res.goto == END
+    assert not regen.chamadas
+    assert not _msgs_update(res)
+
+
+async def test_pos_escalada_saudacao_conflitante_tambem_nao_arma(monkeypatch: Any) -> None:
+    """Terceiro da classe (o quarto, `pedagio`, entra pelo mesmo `not escalada_no_turno`): espelhar
+    o periodo do cliente e melhoria de estilo — nao vale um turno de LLM depois da escalada."""
+    _judge_ok(monkeypatch)
+    regen = _fake_regen("Boa tarde amor 🥰")
+    monkeypatch.setattr(mod, "_regenerar", regen)
+
+    state = _state_pos_escalada("Boa noite amor 🥰")
+    state["conversa_crua"] = [
+        AIMessage(content="oi", id="c1"),
+        HumanMessage(content="Boa tarde, tudo bem?", id="c2"),
+    ]
+    res = await mod.output_guard(state, _runtime_cardapio())  # type: ignore[arg-type]
+
+    assert res.goto == END
+    assert not regen.chamadas
+
+
+async def test_pos_escalada_vazio_por_seguranca_nao_ganha_recuperacao(monkeypatch: Any) -> None:
+    """Ultima porta da familia: gatilho de SEGURANCA (`preco` fantasma) esvazia o turno e o trilho
+    do vazio chamava `_recuperar_vazio` — UMA regen extra que, pos-escalada, ressuscita fala de
+    venda por cima da decisao de outro no (a rede deterministica logo abaixo ja se isentava, mas
+    ela so roda DEPOIS). Com escalada aberta o turno fecha MUDO, como o topo do modulo declara."""
+    _judge_ok(monkeypatch)
+    # 1a chamada: regen indisponivel (cai no fallback de drop, que esvazia o turno). 2a: seria a
+    # recuperacao, com texto que passa a bateria inteira — e justamente ela que nao pode sair.
+    regen = _fake_regen_seq([None, "400 1h no meu local amor"])
+    monkeypatch.setattr(mod, "_regenerar", regen)
+
+    res = await mod.output_guard(  # type: ignore[arg-type]
+        _state_pos_escalada("Fica 750 1h amor"), _runtime_cardapio()
+    )
+
+    assert res.goto == END
+    assert [c["gatilho"] for c in regen.chamadas] == ["preco"]  # nenhuma regen extra de `mudo`
+    msgs = _msgs_update(res)
+    assert msgs and all(not str(c).strip() for c in msgs.values())  # turno mudo
+
+
+async def test_sem_escalada_vazio_ainda_e_recuperado(monkeypatch: Any) -> None:
+    """Contraprova: sem o carimbo da escalada, o vazio TOTAL continua ganhando a recuperacao — o
+    cliente no vacuo segue sendo a pior saida medida no shadow."""
+    _judge_ok(monkeypatch)
+    regen = _fake_regen_seq([None, "400 1h no meu local amor"])
+    monkeypatch.setattr(mod, "_regenerar", regen)
+
+    res = await mod.output_guard(_state("Fica 750 1h amor"), _runtime_cardapio())  # type: ignore[arg-type]
+
+    assert res.goto == END
+    assert [c["gatilho"] for c in regen.chamadas] == ["preco", "mudo"]
+    assert _msgs_update(res)["regen2"] == "400 1h no meu local amor"
+
+
+async def test_pos_escalada_leak_ainda_e_barrado(monkeypatch: Any) -> None:
+    """Contraprova de SEGURANCA: vazamento nao vira excecao por haver escalada aberta. O turno
+    continua bloqueado + handoff, exatamente como sem escalada."""
+    cap = _Capturador()
+    monkeypatch.setattr(mod_defesa, "abrir_handoff", cap)
+    monkeypatch.setattr(mod, "_regenerar", _fake_regen(None))  # regen indisponivel -> fallback
+
+    res = await mod.output_guard(_state_pos_escalada("sou uma IA amor"), _runtime())  # type: ignore[arg-type]
+
+    assert res.goto == END
+    assert len(cap.chamadas) == 1  # handoff aberto
+    msgs = _msgs_update(res)
+    assert all(not str(c).strip() for c in msgs.values())  # nada sai ao cliente
+
+
+async def test_sem_escalada_repeticao_segue_regenerando(monkeypatch: Any) -> None:
+    """Contraprova do c10: sem o rastro da escalada, a repeticao continua no trilho de hoje — a
+    isencao restringe pelo carimbo, nao desliga o detector."""
+    _judge_ok(monkeypatch)
+    regen = _fake_regen("Me confirma o horario amor ?")
+    monkeypatch.setattr(mod, "_regenerar", regen)
+
+    bolha = "Consigo te encaixar às 19:30 amor, fecha ?"
+    res = await mod.output_guard(_state(bolha, historico=[bolha]), _runtime())  # type: ignore[arg-type]
+
+    assert res.goto == END
+    assert regen.chamadas and regen.chamadas[0]["gatilho"] == "repeticao"
+    assert _msgs_update(res)["regen1"] == "Me confirma o horario amor ?"

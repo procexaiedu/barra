@@ -86,9 +86,14 @@ from barra.dominio.modelos.parcerias import carregar_parceria
 from barra.settings import get_settings
 
 from .._classificador import classificar_janela
+from .._disciplina import (
+    contem_hora_explicita,
+    dia_recusado_pelo_cliente,
+    horas_em_pauta_da_conversa,
+)
 from .._normalizar import normalizar
 from .._parceria import fluxo_da_parceira
-from .._texto_turno import _PREFIXO_ID_PAUSA
+from .._texto_turno import _PREFIXO_ID_PAUSA, e_marca_pausa
 from ..contexto import ContextAgente
 from ..estado import EstadoAgente
 from ..llm import build_system_messages
@@ -107,14 +112,17 @@ from ..persona import (
 )
 from ._contexto_do_turno import ContextoDoTurno
 from ._foco_do_turno import (
+    _RE_SPOTLIGHT,
     _familias_em,
     _textos_do_burst,
     aceite_curto_no_burst,
     composicao_na_janela,
+    desistencia_no_burst,
     duracao_dita_na_janela,
     duracao_pedida_no_burst,
     fetiches_na_janela,
     fetiches_no_burst,
+    janela_futura_vaga_no_burst,
     pediu_endereco_no_burst,
     pediu_preco_no_burst,
     pediu_restricoes_no_burst,
@@ -129,9 +137,11 @@ from ._janela_do_turno import (
     _ja_sondou_o_dia,
     _pediu_infos_no_burst,
     _recuo_no_turno,
+    _texto_msg,
+    aceite_provavel_sem_confirmacao,
 )
 from ._janelas_livres import janelas_livres
-from ._proximo_livre import proximo_livre
+from ._proximo_livre import piso_com_hora_ofertada, proximo_livre
 
 # Mesmo fuso que o SQL usa (`current_timestamp AT TIME ZONE 'America/Sao_Paulo'`): quando o relogio
 # vem injetado (ContextAgente.agora_utc), derivamos a ancora BRT em Python com ESTE fuso p/ casar
@@ -443,6 +453,116 @@ def _texto_marca_pausa(antes: datetime, depois: datetime) -> str:
     if horas < 48:
         return f"[pausa de {horas}h na conversa]"
     return f"[pausa de {horas // 24} dias na conversa]"
+
+
+def _falas_da_conversa_contigua(linhas: list[dict[str, Any]]) -> list[tuple[bool, str]]:
+    """`[(é_fala_dela, texto)]` do trecho CONTÍGUO da janela, em ordem cronológica.
+
+    "Contíguo" pela MESMA régua que a tradução usa para carimbar a marca de pausa (`_GAP_PAUSA`):
+    o que foi ofertado antes de um sumiço de 6h não está mais em pauta — é o mesmo incidente de
+    29/07 (a IA reciclou "16h" de seis dias antes) visto do lado do horário. Consumidor único:
+    `horas_em_pauta_da_conversa`, que dá ao piso do `<horario_minimo>` a hora que ela já ofertou.
+
+    Os DOIS lados vão: a fala dela ACRESCENTA hora à pauta, a dele só RETIRA (a hora que ele recusa
+    sai). A fala da modelo no MANUAL conta como dela — para o cliente é a mesma voz, e negar a hora
+    que ela combinou à mão quebra o combinado do mesmo jeito.
+    """
+    falas: list[tuple[bool, str]] = []
+    anterior_em: datetime | None = None
+    for linha in linhas:
+        criada_em = linha.get("created_at")
+        if (
+            anterior_em is not None
+            and criada_em is not None
+            and criada_em - anterior_em >= _GAP_PAUSA
+        ):
+            falas.clear()
+        if criada_em is not None:
+            anterior_em = criada_em
+        direcao = linha.get("direcao")
+        if direcao in (DirecaoMensagem.ia, DirecaoMensagem.modelo_manual, DirecaoMensagem.cliente):
+            falas.append((direcao is not DirecaoMensagem.cliente, linha.get("conteudo") or ""))
+    return falas
+
+
+# --- Belief estacionário: quantos turnos ela já vem cobrando o mesmo (campanha 13/08, FIX 2) -----
+# Defeito medido em 915 turnos com prompt capturado: quando a FSM trava, o belief reemite a MESMA
+# ordem byte-idêntica turno após turno (25% -> 93% de `<proximo_passo>` igual ao anterior, run
+# máximo de 17) e o modelo obedece — a conversa é ~1% do prompt e o belief pesa 10x mais que ela.
+# O sintoma na bolha é a mesma cobrança três, quatro vezes ("Me confirma que eu te passo o
+# endereço" em dois turnos seguidos, c3-lote/eb02_139384791793838).
+#
+# O contador é DERIVADO da janela, não carimbado: o grafo compila SEM checkpointer (01 §6.7,
+# `build_graph`), então o State morre no fim do turno e não tem como contar nada entre turnos — o
+# único carimbo durável seria coluna nova em `atendimentos` (migration + write-time), e a janela já
+# responde a pergunta sem ela. O que a janela prova, sem inferência nenhuma:
+#   (i) `<ainda_falta>` está NÃO-VAZIO agora (o belief cobra algo NESTE turno);
+#  (ii) nos N últimos turnos DELA, seguidos, a mensagem carregou pedido/pergunta.
+# Juntos: ela pediu N vezes e o que falta continua faltando. Nenhuma das duas metades sozinha
+# serve — (i) sozinho dispara em 60% dos turnos (o item de topo é monotônico: medido no corpus,
+# some e volta em 1 de 928 renders) e (ii) sozinho não sabe se o pedido foi atendido.
+_RE_PEDIDO_A_ELE = re.compile(
+    r"\bme\s+(?:confirma|passa|manda|diz|fala|avisa|envia)\b|\bconfirma\s+(?:pra\s+mim|comigo)\b"
+)
+
+
+def _turnos_dela(falas: list[tuple[bool, str]]) -> list[list[str]]:
+    """Agrupa `[(é_dela, texto)]` nos BURSTS dela, em ordem cronológica.
+
+    A janela é uma linha por bolha e ela emite 2-4 bolhas por turno; contar bolha por turno faria
+    "três turnos cobrando" virar "três bolhas do mesmo turno". O corte é a fala dele no meio.
+    """
+    turnos: list[list[str]] = []
+    atual: list[str] = []
+    for dela, texto in falas:
+        if dela:
+            atual.append(texto)
+        elif atual:
+            turnos.append(atual)
+            atual = []
+    if atual:
+        turnos.append(atual)
+    return turnos
+
+
+def _e_cobranca(turno: list[str]) -> bool:
+    """O turno DELA terminou pedindo algo a ele? Pergunta (`?`, o mesmo gatilho que o output_guard
+    usa para "devolveu a iniciativa") ou pedido imperativo de cobrança ("me confirma", "me passa").
+    Forma, não assunto: o assunto quem diz é o `<ainda_falta>`, que é estado, não léxico."""
+    return any("?" in b or _RE_PEDIDO_A_ELE.search(normalizar(b)) for b in turno)
+
+
+def _turnos_cobrando_o_mesmo(
+    falas: list[tuple[bool, str]],
+    *,
+    ha_pendencia: bool,
+    aguarda_confirmacao_da_hora: bool,
+) -> int:
+    """Quantos turnos DELA, seguidos e no fim da conversa contígua, saíram cobrando com o
+    `<ainda_falta>` ainda cheio. 0 = não há repetição a carimbar (ver o comentário do bloco).
+
+    `aguarda_confirmacao_da_hora` (horário gravado e não evidenciado — a pré-condição que trava a
+    FSM em `Qualificado`) impõe um TETO: ela não pode estar cobrando a confirmação de uma hora que
+    ainda não estava na mesa, então a contagem não passa dos turnos dela desde a primeira bolha
+    contígua com hora explícita. Sem esse teto o carimbo herdaria a conversa inteira e diria "você
+    já pediu isto 8 vezes" no primeiro turno em que a hora aparece.
+    """
+    if not ha_pendencia:
+        return 0
+    turnos = _turnos_dela(falas)
+    run = 0
+    for turno in reversed(turnos):
+        if not _e_cobranca(turno):
+            break
+        run += 1
+    if not aguarda_confirmacao_da_hora:
+        return run
+    desde = next(
+        (i for i, (_dela, texto) in enumerate(falas) if contem_hora_explicita(texto)), None
+    )
+    if desde is None:
+        return 0
+    return min(run, len(_turnos_dela(falas[desde:])))
 
 
 def traduzir_mensagens(linhas: list[dict[str, Any]]) -> list[BaseMessage]:
@@ -995,6 +1115,11 @@ async def _anexar_contexto_dinamico(
         pediu_preco_no_turno=pediu_preco_no_burst(mensagens),
         saudacao_dele=saudacao_do_burst(mensagens),
         aceitou_no_burst=aceite_curto_no_burst(mensagens),
+        # A hora que ela cobrou provavelmente está de pé (14/08): SÓ modula a redação do <hora> e
+        # apaga o <ja_cobrou_isso> — nunca promove estado (ver o campo em `_contexto_do_turno` e o
+        # docstring do detector). Lido da janela LIMPA, como os vizinhos: depois da anexação a
+        # cauda carrega o belief e o próprio texto "espere o sim" entraria na leitura da conversa.
+        aceite_provavel_da_hora=aceite_provavel_sem_confirmacao(mensagens),
         # O rótulo do dia do encontro, resolvido em Python DEPOIS do A2 acima (que é quem preenche
         # o `data_desejada` do "hoje" que ele acabou de dizer). Sai daqui e não do template porque
         # o calendário sozinho mente na virada da madrugada — ver `_quando_do_encontro`.
@@ -1105,18 +1230,51 @@ async def _anexar_contexto_dinamico(
     # ele pergunta "faz anal?" num turno, ela oferece a amiga, e o turno do "quero sim" não tem
     # família nenhuma. Lido do burst, o bloco sumiria exatamente no turno em que ele topou.
     familias_pauta = fetiches_na_janela(mensagens)
+    # Resolvido de novo quando a janela traz mais que o burst: o cruzamento com o cardápio tem de
+    # ser sobre as MESMAS famílias que o discriminante lê. Hoistado do call da parceira porque a
+    # desistência-por-item-fora (M4d, abaixo) lê o MESMO resolvido — duas resoluções divergiriam.
+    resolvidos_janela = (
+        resolvidos
+        if familias_pauta == familias
+        else _resolver_fetiches_em_pauta(familias_pauta, cardapio_rows)
+    )
     if familias_pauta:
         contexto = await _aplicar_parceira(
             conn,
             ctx.modelo_id,
             contexto,
             familias_pauta,
-            # Resolvido de novo quando a janela traz mais que o burst: o cruzamento com o
-            # cardápio tem de ser sobre as MESMAS famílias que o discriminante lê.
-            resolvidos
-            if familias_pauta == familias
-            else _resolver_fetiches_em_pauta(familias_pauta, cardapio_rows),
+            resolvidos_janela,
         )
+    # --- M4d (campanha 13/08): as duas mortes da cauda de fechamento ---------------------------
+    # (a) Janela futura vaga ("semana que vem te falo") COM preço já na mesa: o detector é do
+    #     burst; o gate de preço é o mesmo OR do `interesse_no_endereco` acima —
+    #     `cotacao_enviada_em` cobre a cotação em aberto, `valor_acordado` a mesa já acordada
+    #     (adiar depois do aceite adia igual). Sem preço na mesa não há fechamento a salvar e o
+    #     adiamento é matéria da conversa normal: o bloco não renderiza.
+    # (b) Desistência por item FORA do cardápio: desistência dita no burst + alguma família da
+    #     JANELA resolvida como "fora" (closed-world do cadastro; a janela cobre o "faz anal?" de
+    #     turnos atrás que o burst do "então deixa" não repete). Roda DEPOIS da parceira: com
+    #     fluxo de parceira em pauta (ou contato já passado), quem conduz é o bloco dela — os dois
+    #     juntos puxariam a fala em direções opostas. Status "no_completo" fica de fora de
+    #     propósito: ali o item TEM rota (o Completo) e a desistência costuma ser de preço, não de
+    #     cardápio — fail-closed.
+    contexto = replace(
+        contexto,
+        janela_futura_vaga=(
+            (
+                _atend.get("cotacao_enviada_em") is not None
+                or _atend.get("valor_acordado") is not None
+            )
+            and janela_futura_vaga_no_burst(mensagens)
+        ),
+        desistencia_fora_do_cardapio=(
+            any(f.get("status") == "fora" for f in resolvidos_janela)
+            and contexto.parceira_fluxo is None
+            and not contexto.parceira_ja_encaminhada
+            and desistencia_no_burst(mensagens)
+        ),
+    )
     # Rodada 6 — a duração PEDIDA no burst re-ancora o <pacote_em_pauta> (derrota medida: cliente
     # pede "3h" e a IA cota a linha de 1h; ou pede o pacote de dia com 1h fechada e a IA contradiz
     # a própria oferta). A menção explícita DELE vence a duração do belief, com o MESMO fail-closed
@@ -1174,8 +1332,40 @@ async def _anexar_contexto_dinamico(
         duracao_em_pauta = _horas_da_linha_contraproposta(
             _textos_do_burst(mensagens), precos_por_horas
         )
-    if contexto.preco_na_mesa and contexto.n_contrapropostas == 0:
-        if contexto.escada_estado == "sem_dia" and not contexto.aceite_do_valor_dele:
+    if duracao_em_pauta is None:
+        # Degrau 3 (campanha 13/08, eb02:26311003246742): burst E belief sem duração e o cliente
+        # só REPERGUNTA o preço — a IA cotou "400 1h", a extração não gravou `duracao_horas` e
+        # ele não propôs valor nenhum (o degrau 2 acima não tem o que resolver). O preço que a
+        # PRÓPRIA IA pôs na mesa (`preco_cotado_valor`, lido da fala dela na janela) aponta a
+        # linha cotada — o mesmo mecanismo do `_horas_da_linha_contraproposta`, sobre o número
+        # DELA. Sem isto o <pacote_maior_na_sua_tabela> sumia da cauda em TODA repergunta de
+        # preço antes de alguém nomear duração — exatamente o degrau de upsell que regras:155
+        # pressupõe. Fail-closed idêntico: valor que casa zero ou mais de uma linha -> None.
+        duracao_em_pauta = _horas_da_linha_cotada(contexto.preco_cotado_valor, precos_por_horas)
+    # O sinal de TEMPO SOBRANDO dele (campanha 13/08): "to de folga hoje e a noite ta toda livre,
+    # quanto vc cobra ?". Ele abre a alavanca de upsell UM TURNO ANTES da objeção — no turno da
+    # primeira cotação, onde `preco_na_mesa` ainda é falso (a cotação sai AGORA) e o bloco do
+    # pacote maior não existia. A IA cotava a 1h e parava, com o cliente tendo dito que a noite
+    # inteira estava livre.
+    tempo_livre = _tempo_livre_sinalizado(mensagens)
+    if duracao_em_pauta is None and tempo_livre:
+        # Degrau 4, e só nesta porta: sem duração nenhuma resolvida, a linha em pauta é a que ela
+        # cota por padrão (a mais curta da tabela, a régua do <cotacao> "na 1h") — é sobre ela que
+        # o pacote maior é "maior". Fora do sinal de tempo livre o degrau continua fail-closed: no
+        # turno da objeção, supor a linha base sobre uma conversa que já nomeou outro pacote seria
+        # oferecer o tempo errado.
+        duracao_em_pauta = min(precos_por_horas) if precos_por_horas else None
+    # `preco_na_mesa` continua mandando na oferta condicionada ao dia (ela responde a uma cotação
+    # que JÁ saiu); o degrau do pacote maior é que passa a valer também no turno em que ele
+    # sinaliza tempo livre — sem valor já aceito, que ali a venda está feita.
+    if (contexto.preco_na_mesa or (tempo_livre and not contexto.valor_aceito)) and (
+        contexto.n_contrapropostas == 0
+    ):
+        if (
+            contexto.preco_na_mesa
+            and contexto.escada_estado == "sem_dia"
+            and not contexto.aceite_do_valor_dele
+        ):
             salto = _salto_na_mesa(contexto, cardapio_rows, _atend.get("duracao_horas"), dur_pedida)
             par = (
                 await _par_condicionado_ao_dia(conn, ctx.modelo_id, salto)
@@ -1188,7 +1378,10 @@ async def _anexar_contexto_dinamico(
             contexto = replace(
                 contexto,
                 pacote_maior=_pacote_maior_na_tabela(precos_por_horas, duracao_em_pauta),
-                tempo_dele_desconhecido=not duracao_dita_na_janela(mensagens),
+                # Duração dita OU tempo livre sinalizado: nos dois casos o tempo dele já está na
+                # mesa e não há o que sondar — o que muda é só isso, a jogada segue a mesma
+                # (oferecer o pacote maior no valor cheio, regras:161).
+                tempo_dele_desconhecido=not (duracao_dita_na_janela(mensagens) or tempo_livre),
             )
     # Ponteiro condicional de PITCH (rodada 3, fase 1-E): o burst atual pede a apresentação
     # ("como funciona?", "me passa as infos") → o <proximo_passo> aponta o molde completo, na
@@ -1805,6 +1998,67 @@ async def _par_condicionado_ao_dia(
     return (hoje, outro) if hoje and outro else None
 
 
+# Tempo LIVRE sinalizado por ele — a alavanca de upsell que o contexto não estava entregando.
+# Campanha 13/08: "to de folga hoje e a noite ta toda livre, quanto vc cobra?" e a IA cotou a 1h e
+# parou ali, porque o <pacote_maior_na_sua_tabela> só existia com cotação JÁ na mesa (turno da
+# objeção). O sinal mais forte de ticket que o cliente dá chegava tarde demais para virar venda.
+#
+# Família FECHADA, sem `.*`: cada alternativa nomeia a expressão inteira. E a DIREÇÃO é resolvida
+# pela própria gramática, não por heurística — só primeira pessoa ("to de folga", "tenho a noite
+# toda", "to livre"), porque "trabalho a noite toda" é o oposto do sinal e "você ta livre ?" é
+# pergunta sobre a agenda DELA. O que a gramática não separa (o "de folga" solto de um "vc ta de
+# folga ?") o `_PRONOME_DE_SEGUNDA_PESSOA` derruba na conferência do trecho anterior ao match.
+_RE_TEMPO_LIVRE = re.compile(
+    r"\b(?:t[oôóu]|estou|tava|to)\s+(?:de\s+)?folga\b"
+    r"|\bde\s+folga\b|\bfolga\s+hoje\b"
+    r"|\b(?:t[oôóu]|estou|to)\s+(?:de\s+)?f[ée]rias\b"
+    r"|\b(?:t[oôóu]|estou|to)\s+livre\b"
+    r"|\b(?:t[oôóu]|estou|to)\s+de\s+bobeira\b|\bde\s+bobeira\b"
+    r"|\b(?:t[oôóu]|estou|to)\s+[àa]\s+toa\b"
+    r"|\b(?:sem|n[ãa]o\s+tenho)\s+pressa\b|\bsem\s+compromisso\b"
+    r"|\btenho\s+(?:a\s+)?(?:noite|tarde|manh[ãa])\s+(?:toda|inteira)\b"
+    r"|\btenho\s+o\s+dia\s+(?:todo|inteiro)\b"
+    r"|\b(?:a\s+)?(?:noite|tarde|manh[ãa])\s+(?:t[aá]|est[aá])\s+(?:toda|inteira)\s+livre\b"
+    r"|\b(?:o\s+)?dia\s+(?:t[aá]|est[aá])\s+(?:todo|inteiro)\s+livre\b"
+    r"|\b(?:noite|tarde|manh[ãa])\s+(?:toda|inteira)\s+livre\b"
+    r"|\bdia\s+(?:todo|inteiro)\s+livre\b",
+    re.IGNORECASE,
+)
+# Ele falando da agenda DELA ("vc ta de folga hoje ?") não é tempo livre dele — e a pergunta vem
+# quase sempre com o pronome à esquerda, na mesma oração.
+_PRONOME_DE_SEGUNDA_PESSOA = re.compile(
+    r"\b(?:voc[êe]s?|vcs?|c[êe]|tu|te|contigo)\b", re.IGNORECASE
+)
+
+
+def _tempo_livre_sinalizado(mensagens: list[BaseMessage]) -> bool:
+    """O CLIENTE sinalizou, em alguma fala da janela, que o TEMPO dele está sobrando.
+
+    Irmã da `duracao_dita_na_janela` e com o mesmo consumidor: a conduta de SUBIR O TEMPO antes de
+    descer o preço (regras:161). Ela responde "ele não disse quanto tempo tem"; esta responde "ele
+    disse que tem tempo de sobra" — e é a segunda que habilita a jogada já no turno da primeira
+    cotação, onde não há objeção nenhuma para responder e o upsell é o próprio pitch.
+
+    Janela inteira, não só o burst: a folga que ele contou ao abrir a conversa continua valendo
+    quando o preço entra dois turnos depois. Marca de pausa e mídia cercada ficam de fora, pelos
+    mesmos motivos da irmã (a marca é texto do SISTEMA; a cerca é dado do cliente que não vira
+    detector). Falso-positivo aqui custa uma oferta de pacote maior no valor CHEIO da tabela —
+    nunca um desconto —, e falso-negativo devolve exatamente o comportamento de hoje.
+    """
+    for m in mensagens:
+        if m.type != "human" or e_marca_pausa(m):
+            continue
+        texto = _texto_msg(m)
+        if not texto or _RE_SPOTLIGHT.search(texto):
+            continue
+        for achado in _RE_TEMPO_LIVRE.finditer(texto):
+            if not _PRONOME_DE_SEGUNDA_PESSOA.search(
+                texto[max(0, achado.start() - 30) : achado.start()]
+            ):
+                return True
+    return False
+
+
 def _pacote_maior_na_tabela(
     precos_por_horas: dict[float, list[Decimal]] | None, duracao_em_pauta: Any
 ) -> dict[str, str] | None:
@@ -1891,7 +2145,8 @@ async def _carregar_atendimento(conn: AsyncConnection[Any], atendimento_id: str)
                dia_sondado_em, book_enviado_em, endereco_enviado_em,
                amiga_ofertada_em, foto_portaria_pedida_em,
                motivo_resgate_perguntado_em, horario_evidenciado,
-               parceira_encaminhada_em, parceira_dupla_em
+               parceira_encaminhada_em, parceira_dupla_em,
+               deslocamento_por_conta_do_cliente
           FROM barravips.atendimentos
          WHERE id = %s
         """,
@@ -1929,11 +2184,33 @@ _RE_VALOR_POSICIONAL = re.compile(
     r"\b(\d{3,4})\s+(?:e\s+)?(?:fecha\b|fecho\b|fechamos\b|t[áa] bom\b|serve\b|fica bom\b)",
     re.IGNORECASE,
 )
+# A quarta família, medida em 13/08: MODAL + INFINITIVO. A fala canônica da objeção ("nossa ta um
+# pouco caro, consegue fazer 360 ?") não tem nenhum verbo FINITO da lista verbal — o verbo de
+# proposta vem no infinitivo, atrás de um modal —, e o burst inteiro devolvia set(): o
+# <valor_dele_serve> não renderizava e a IA ofertava o PISO (300) num número que ele já tinha
+# nomeado ACIMA dele. É o mesmo dinheiro na mesa que o ADR-0040 existe para não deixar cair.
+#
+# Duas concessões e as compensações de cada uma, porque este é o único ramo que NÃO exige o número
+# colado no verbo ("consegue baixar mais, tipo uns 320 ?" põe três palavras no meio):
+# - o MODAL é obrigatório (nunca o infinitivo solto): "fazer 2 pessoas", "fazer 30 min" e a fala
+#   DELA citada por ele não passam por aqui, e "consegue fazer" é a forma que o corpus usa;
+# - o vão entre o infinitivo e o número é curto (<= 20 chars) e não pode conter DÍGITO nem fim de
+#   frase — atravessar um número seria pescar o valor de outra oração ("consegue fazer o de 1 hora
+#   por 400" fica de fora e cai no contexto monetário, que é quem sabe ler aquele "por 400");
+# - 3-4 dígitos como nas outras duas famílias soltas: com o vão, "consegue fazer 22h" ficaria por
+#   conta do sufixo de tempo sozinho, e o corte por dígito derruba de véspera horário e dia do mês
+#   ("consegue fazer dia 15 ?"). O piso de 100 continua valendo por cima.
+_RE_PEDIDO_POS_MODAL = re.compile(
+    r"\b(?:consegue|conseguiria|consegues|d[áa] pra|d[áa] para|pode|poderia|tem como)\s+"
+    r"(?:me\s+|pra\s+mim\s+)?(?:fazer|fechar|baixar|abaixar|deixar|cobrar|colocar|p[ôo]r)\b"
+    r"[^\d?!.\n]{0,20}(\d{3,4})\b" + _SUFIXO_DE_TEMPO,
+    re.IGNORECASE,
+)
 
 
 def _valores_propostos_no_burst(textos_burst: list[str]) -> set[int]:
     """Todo valor que o cliente NOMEIA no burst — o do contexto monetário (`extrair_precos_citados`,
-    que já aplica o piso) mais os dos três ramos verbais, esses com o piso aplicado aqui.
+    que já aplica o piso) mais os dos quatro ramos verbais, esses com o piso aplicado aqui.
 
     O piso de 100 no ramo verbal é o que impede hora de virar preço: "fecha 21" casa o verbal e
     viraria uma proposta de R$21. Ele não existia enquanto o único consumidor era o
@@ -1942,7 +2219,12 @@ def _valores_propostos_no_burst(textos_burst: list[str]) -> set[int]:
     valores: set[int] = set()
     for texto in textos_burst:
         valores |= extrair_precos_citados(texto)
-        for regex in (_RE_CONTRAPROPOSTA_VERBAL, _RE_LIMITE_DO_CLIENTE, _RE_VALOR_POSICIONAL):
+        for regex in (
+            _RE_CONTRAPROPOSTA_VERBAL,
+            _RE_LIMITE_DO_CLIENTE,
+            _RE_VALOR_POSICIONAL,
+            _RE_PEDIDO_POS_MODAL,
+        ):
             for grupos in regex.findall(texto):
                 for bruto in grupos if isinstance(grupos, tuple) else (grupos,):
                     if bruto and int(bruto) >= PRECO_MINIMO_SCAN:
@@ -1999,31 +2281,243 @@ def _ressalva_de_servico_no_burst(textos_burst: list[str]) -> bool:
     )
 
 
-def _horas_da_linha_contraproposta(
-    textos_burst: list[str], precos_por_horas: dict[float, list[Decimal]] | None
-) -> float | None:
-    """Fallback 2 do degrau: a duração da linha em negociação, inferida do VALOR proposto.
+def _valor_dele_na_conversa_contigua(
+    linhas: list[dict[str, Any]], ja_conhecidos: set[int]
+) -> int | None:
+    """O ÚLTIMO valor que o CLIENTE nomeou no trecho CONTÍGUO da janela, ou None (fail-closed).
 
-    "400 tá salgado, faz 300?" não carrega dígito de duração (o fallback 1,
-    `duracao_pedida_no_burst`, é cego a ela — validação ao vivo de 11/08), mas o valor que o
-    cliente propôs aponta a linha: a de MENOR preço da tabela ACIMA do proposto (300 -> 400/1h;
-    1500 -> 2000/12h). Ecos da própria tabela ("400 tá salgado" cita o 400 cotado) são
-    descartados antes de decidir. Qualquer ambiguidade — nenhum valor novo citado, mais de um,
-    proposto acima de toda a tabela, ou a menor linha acima empatada em duas durações — devolve
-    None e o fail-closed do degrau segue valendo.
+    Fallback do `_valor_proposto_no_burst` para o turno em que ele INSISTE sem repetir o número
+    ("consegue mesmo assim ?"). Campanha c7, `desconto_valor_dele_serve`: ele disse 360 num turno,
+    insistiu no seguinte sem dígito nenhum, o aceite do ADR-0040 devolvia `sem_valor`, o
+    `<valor_dele_serve>` não renderizava e a IA caía na escada — ofertando o PISO (300) num número
+    que ele mesmo já tinha nomeado acima dele. O valor dele precisa sobreviver ao turno, e
+    sobreviver é ler a conversa, não o belief: nada aqui é gravado.
+
+    "Contíguo" pela MESMA régua da marca de pausa (`_GAP_PAUSA`), como em
+    `_falas_dela_na_conversa_contigua` — só que do lado DELE: o número dito antes de um sumiço de
+    6h não está mais na mesa.
+
+    A RETIRADA é o que impede o número velho de mandar numa pauta que já mudou, e são três regras,
+    todas determinísticas:
+    - valor novo dele vence o anterior (o último é o que vale); bolha com DOIS valores novos zera o
+      candidato, como no burst (com dois números não dá para saber qual é a oferta dele);
+    - número com ressalva de serviço pendurada nunca sobrevive (`_ressalva_de_servico_no_burst`):
+      o burst do turno seguinte não tem como carregar a condição, e o aceite fecharia sobre uma
+      promessa que ninguém conferiu contra o cardápio;
+    - fala DELA que OFERTA um valor <= o dele retira o dele: igual = ela já disse o número dele de
+      volta (a pauta é o sim dela, não o pedido dele); menor = ela já ofereceu melhor do que ele
+      pediu, e aceitar o dele depois disso seria SUBIR o preço. Número dela ACIMA é a defesa da
+      tabela — defender não retira o pedido, e é justamente o turno que este fallback existe para
+      salvar. `precos_ofertados_na_fala` (não `extrair_precos_citados`) porque a recusa que cita o
+      número dele ("não consigo 150") não é oferta nenhuma.
     """
-    if not precos_por_horas:
+    candidato: int | None = None
+    anterior_em: datetime | None = None
+    for linha in linhas:
+        criada_em = linha.get("created_at")
+        if (
+            anterior_em is not None
+            and criada_em is not None
+            and criada_em - anterior_em >= _GAP_PAUSA
+        ):
+            candidato = None
+        if criada_em is not None:
+            anterior_em = criada_em
+        texto = linha.get("conteudo") or ""
+        direcao = linha.get("direcao")
+        if direcao == DirecaoMensagem.cliente:
+            novos = _valores_propostos_no_burst([texto]) - ja_conhecidos
+            if novos:
+                candidato = (
+                    novos.pop()
+                    if len(novos) == 1 and not _ressalva_de_servico_no_burst([texto])
+                    else None
+                )
+        elif (
+            direcao in (DirecaoMensagem.ia, DirecaoMensagem.modelo_manual)
+            and candidato is not None
+            and any(p <= candidato for p in precos_ofertados_na_fala(texto))
+        ):
+            candidato = None
+    return candidato
+
+
+def _valor_dele_vigente(
+    textos_burst: list[str], linhas: list[dict[str, Any]], ja_conhecidos: set[int]
+) -> int | None:
+    """O número DELE que vale NESTE turno: o do burst atual e, só quando o burst não traz nenhum,
+    o último que sobreviveu na conversa contígua.
+
+    A ordem preserva o ADR-0040 ao pé da letra — a linha do burst ATUAL continua vencendo, e vence
+    inclusive quando ela é AMBÍGUA: burst com dois valores novos devolve None e NÃO cai no
+    histórico, senão o fallback escolheria por ele justamente onde o desenho manda não escolher.
+    O histórico só responde quando o burst está calado sobre números."""
+    if _valores_propostos_no_burst(textos_burst) - ja_conhecidos:
+        return _valor_proposto_no_burst(textos_burst, ja_conhecidos)
+    return _valor_dele_na_conversa_contigua(linhas, ja_conhecidos)
+
+
+# O carimbo de INSISTÊNCIA abaixo do piso viaja no `<proximo_passo>` — o canal condicional que já
+# existe para conduta deste turno ("ele acabou de pedir suas infos", em `_anexar_contexto_dinamico`)
+# e a única variável PUBLICADA em que ele cabe. `_MARCA_INSISTENCIA_PISO` é o literal que o
+# `contexto_dinamico.md.j2` testa (`{% if ... in proximo_passo %}`) para liberar a metade da
+# ESCALADA do `<pedido_abaixo_do_piso>`: sem o carimbo, o modelo não lê cláusula de escalada
+# nenhuma — que é o que a regressão de 13/08 pediu, e é gate, não conselho.
+#
+# Eco multi-site: os dois lados do literal são amarrados por teste (agente/CLAUDE.md).
+_MARCA_INSISTENCIA_PISO = "REPETINDO um pedido abaixo do seu piso"
+_INSISTENCIA_ABAIXO_DO_PISO = (
+    f"; ele está {_MARCA_INSISTENCIA_PISO} que você já recusou — a insistência é esta, e é ela "
+    "que fecha o assunto pelo <pedido_abaixo_do_piso>"
+)
+
+
+def _piso_ja_recusado(
+    linhas: list[dict[str, Any]], valor_dele: int | None, ja_conhecidos: set[int]
+) -> bool:
+    """Ele já OUVIU a sua resposta a este pedido abaixo do piso e está repetindo?
+
+    Regressão medida em 13/08: o `<pedido_abaixo_do_piso>` trazia a cláusula de escalada colada na
+    recusa, e na PRIMEIRA aparição do lowball (o cliente que pediu 350 -> 320 -> 280 sobre um piso
+    de 300) o modelo leu a escada de números como "insistência", escalou de saída e ainda saiu com
+    texto VAZIO — matando uma venda que o baseline fechava. A escada de números DELE não é
+    insistência: mais um número menor, ainda sem resposta dela, é a negociação andando.
+
+    Insistência aqui é uma sequência de TRÊS peças na conversa contígua, e nenhuma delas é opinião:
+    ele NOMEIA um valor <= o que vale agora, ELA fala depois disso, e ele NOMEIA de novo um valor
+    <= o de agora. Duas vezes o número, com a resposta dela no meio — o resto é negociação andando.
+
+    Os recortes, todos fail-closed (dúvida = não escala, que é o comportamento do baseline):
+    - só o trecho CONTÍGUO (`_GAP_PAUSA`, a régua da marca de pausa): quem sumiu 6h e voltou não
+      está insistindo, está recomeçando — a pausa apaga as três peças;
+    - a fala dela tem de estar ENTRE os dois pedidos. O burst atual costuma trazer o número em
+      bolha própria ("280", "vai ?"): sem fala dela no meio é UMA pergunta quebrada em duas;
+    - o número tem de VOLTAR. Auditoria do corpus (122 conversas, 13/08): sem esta terceira peça,
+      "Faz por 300 ?" seguido da resposta dela e de um "As 16:00" carimbava insistência — e ali ele
+      não estava insistindo, estava marcando o horário. Cobrar sem repetir o número ("e aí ?")
+      também deixa de carimbar: é uma rodada de recusa a mais, o lado barato do erro;
+    - valor MAIOR que o de agora não conta. É o recorte que a regressão exige: 350 e 320 pedidos
+      antes do 280 estão ACIMA do piso e são a negociação andando, não o mesmo pedido de volta.
+      Como o valor de agora está abaixo do piso, todo valor <= ele também está — e é só disso que
+      se pode ter certeza sem reconsultar a tabela (o piso mora no domínio, e uma segunda cópia da
+      régua aqui divergiria da que julga a oferta);
+    - `ja_conhecidos` tira do caminho o número que ELA cotou e ele repetiu.
+    """
+    if valor_dele is None:
+        return False
+    pediu, ela_respondeu, insistiu = False, False, False
+    anterior_em: datetime | None = None
+    for linha in linhas:
+        criada_em = linha.get("created_at")
+        if (
+            anterior_em is not None
+            and criada_em is not None
+            and criada_em - anterior_em >= _GAP_PAUSA
+        ):
+            pediu = ela_respondeu = insistiu = False
+        if criada_em is not None:
+            anterior_em = criada_em
+        direcao = linha.get("direcao")
+        texto = linha.get("conteudo") or ""
+        if direcao == DirecaoMensagem.cliente:
+            if any(v <= valor_dele for v in _valores_propostos_no_burst([texto]) - ja_conhecidos):
+                insistiu = insistiu or ela_respondeu
+                pediu = True
+        elif direcao in (DirecaoMensagem.ia, DirecaoMensagem.modelo_manual) and pediu:
+            ela_respondeu = True
+    return insistiu
+
+
+def _linha_do_valor_proposto(
+    proposto: int | None, precos_por_horas: dict[float, list[Decimal]] | None
+) -> float | None:
+    """A linha da tabela que um valor PROPOSTO por ele aponta: a de MENOR preço ACIMA dele
+    (300 -> 400/1h; 1500 -> 2000/12h). Ambiguidade (sem valor, proposto acima de toda a tabela,
+    menor linha acima empatada em duas durações) devolve None — o fail-closed do degrau."""
+    if not precos_por_horas or proposto is None:
         return None
     pares = [(p, h) for h, ps in precos_por_horas.items() for p in ps]
-    proposto = _valor_proposto_no_burst(textos_burst, {int(p) for p, _ in pares})
-    if proposto is None:
-        return None
     acima = [(p, h) for p, h in pares if p > proposto]
     if not acima:
         return None
     menor_preco = min(p for p, _ in acima)
     horas = {h for p, h in acima if p == menor_preco}
     return horas.pop() if len(horas) == 1 else None
+
+
+def _horas_da_linha_contraproposta(
+    textos_burst: list[str], precos_por_horas: dict[float, list[Decimal]] | None
+) -> float | None:
+    """Fallback 2 do degrau: a duração da linha em negociação, inferida do VALOR proposto no burst.
+
+    "400 tá salgado, faz 300?" não carrega dígito de duração (o fallback 1,
+    `duracao_pedida_no_burst`, é cego a ela — validação ao vivo de 11/08), mas o valor que o
+    cliente propôs aponta a linha. Ecos da própria tabela ("400 tá salgado" cita o 400 cotado) são
+    descartados antes de decidir (`_valor_proposto_no_burst`), e a resolução em si é do
+    `_linha_do_valor_proposto` — o mesmo resolver que o call site usa sobre o valor que
+    SOBREVIVEU ao turno (`_valor_dele_vigente`), para a linha e o aceite nunca discordarem sobre
+    qual número dele está em pauta.
+    """
+    if not precos_por_horas:
+        return None
+    ja_conhecidos = {int(p) for ps in precos_por_horas.values() for p in ps}
+    return _linha_do_valor_proposto(
+        _valor_proposto_no_burst(textos_burst, ja_conhecidos), precos_por_horas
+    )
+
+
+def _horas_da_escada_com_burst(
+    horas_do_belief: Any,
+    textos_burst: list[str],
+    precos_por_horas: dict[float, list[Decimal]] | None,
+) -> Any:
+    """A linha da escada quando o BELIEF já tem duração: o valor do burst pode corrigi-la.
+
+    Campanha 13/08 (eb04:187007389155571): a extração gravou `duracao_horas: 12` e
+    `valor_acordado: 2500` a partir de uma PERGUNTA do cliente ("qual período mais longo? e
+    quanto?") — belief envenenado. Quando ele contrapropôs "Faz por 600?" sobre a linha de
+    2h/700, o gate lia a linha do belief: `aceite_do_valor_dele(horas=12, proposto=600,
+    mesa=2500)` computava o piso dos 2500 (1875) e matava por "abaixo_do_piso" uma venda que o
+    ADR-0040 manda fechar (piso da 2h/700 = 525 <= 600 < 700) — saía a fala enlatada da recusa.
+
+    O valor que ELE nomeou NESTE burst aponta a linha que ele está negociando AGORA — o MESMO
+    resolver do fallback 2 (`_horas_da_linha_contraproposta`, site único do "qual número ele
+    disse"): quando a linha do burst resolve e diverge da do belief, a do burst vence. Resolução
+    ambígua (None: sem valor novo, dois valores, acima de toda a tabela, empate) mantém o belief
+    — o fail-closed de sempre, comportamento inalterado.
+    """
+    if horas_do_belief is None or not textos_burst:
+        return horas_do_belief
+    horas_do_burst = _horas_da_linha_contraproposta(textos_burst, precos_por_horas)
+    if horas_do_burst is None or float(horas_do_belief) == horas_do_burst:
+        return horas_do_belief
+    return horas_do_burst
+
+
+def _horas_da_linha_cotada(
+    preco_cotado: str | None, precos_por_horas: dict[float, list[Decimal]] | None
+) -> float | None:
+    """Fallback 3 do degrau: a duração da linha que a PRÓPRIA IA cotou, inferida do preço dela.
+
+    Campanha 13/08 (eb02:26311003246742): a IA cotou "400 1h", o belief não gravou
+    `duracao_horas` e o cliente REPERGUNTOU o preço — sem dígito de duração no burst (fallback 1)
+    e sem valor proposto por ele (fallback 2), `duracao_em_pauta` ficava None e o
+    `<pacote_maior_na_sua_tabela>` sumia da cauda exatamente no turno em que o degrau de upsell
+    se aplica. O número que ELA pôs na mesa (`preco_cotado_valor`, mesma fonte do <valor_cotado>)
+    resolve a linha de volta: irmão do `_horas_da_linha_contraproposta`, só que sobre o preço
+    COTADO em vez do proposto — e por isso a igualdade é EXATA, não "menor linha acima" (a
+    cotação sai da tabela por construção; a heurística do proposto pegaria a linha de cima).
+    Fail-closed idêntico ao da família: preço que casa zero ou mais de uma linha da tabela
+    devolve None e o degrau degrada como sempre.
+    """
+    if not precos_por_horas or preco_cotado is None:
+        return None
+    try:
+        alvo = Decimal(preco_cotado)
+    except InvalidOperation:
+        return None
+    linhas = [h for h, precos in precos_por_horas.items() for p in precos if p == alvo]
+    return linhas[0] if len(linhas) == 1 else None
 
 
 def _preco_cotado_na_janela(mensagens: list[BaseMessage]) -> str | None:
@@ -2211,14 +2705,24 @@ async def _resolver_variaveis(
 
     res = await conn.execute(
         """
-        SELECT inicio, fim
-          FROM barravips.bloqueios
-         WHERE modelo_id = %s
-           AND estado IN ('bloqueado', 'em_atendimento')
-           AND fim > %s
-           AND inicio < %s + make_interval(hours => %s)
-           AND (%s::uuid IS NULL OR atendimento_id IS DISTINCT FROM %s::uuid)
-         ORDER BY inicio
+        SELECT b.inicio,
+               b.fim,
+               -- Deslocamento do vizinho (emenda ADR 0025, 2026-08-14): `externo` alarga o gap
+               -- ao redor DESTE bloqueio (`agenda_buffer_externo_min`) no `proximo_livre`, nas
+               -- `janelas_livres` e no `horario_minimo`. Derivado do atendimento e só caindo na
+               -- coluna do bloqueio (avulso/override do painel) — a MESMA expressão que o gate da
+               -- reserva usa (`existe_vizinho_no_buffer`). Sem esta coluna no SELECT o
+               -- pré-cálculo publicaria fim+30 para um externo que a reserva só aceita em fim+60,
+               -- e a IA ofereceria em loop uma hora que ela mesma recusa.
+               COALESCE(b.tipo_atendimento, a.tipo_atendimento)::text AS tipo_atendimento
+          FROM barravips.bloqueios b
+          LEFT JOIN barravips.atendimentos a ON a.id = b.atendimento_id
+         WHERE b.modelo_id = %s
+           AND b.estado IN ('bloqueado', 'em_atendimento')
+           AND b.fim > %s
+           AND b.inicio < %s + make_interval(hours => %s)
+           AND (%s::uuid IS NULL OR b.atendimento_id IS DISTINCT FROM %s::uuid)
+         ORDER BY b.inicio
         """,
         (
             ctx.modelo_id,
@@ -2278,6 +2782,8 @@ async def _resolver_variaveis(
     escada_estado = estado_da_escada(encontro, n_contrapropostas)
     contraproposta_disponivel: str | None = None
     aceite_dele: str | None = None
+    pedido_abaixo_do_piso = False
+    insistiu_abaixo_do_piso = False
     # Em n=0 o número só sai com cotação em aberto: é aí que a objeção de preço pode vir. Sem
     # cotação não há objeção a responder e o número solto convidaria a ofertar desconto antes de
     # ele pedir; com o valor aceito a negociação de preço acabou. Em n>=1 a escada já está aberta
@@ -2285,11 +2791,33 @@ async def _resolver_variaveis(
     #
     # `!= "esgotada"` (e não mais `in ("aberta", "ultima")`) porque o ACEITE do valor DELE também
     # vive aqui e é independente do dia: `sem_dia` cala a oferta DELA, não o sim ao número DELE.
-    if escada_estado != "esgotada" and (
-        n_contrapropostas > 0 or (cotacao_na_mesa and not valor_aceito)
+    #
+    # A-D3.2 (campanha 13/08, eb04): valor ACEITO congela a escada. Com o aceite explícito
+    # registrado — `sinais_qualificacao.aceita_valor` E `valor_acordado` gravados, o MESMO par que
+    # renderiza o <valor_fechado> ("não re-cote nem renegocie") — a negociação de preço acabou:
+    # nenhum número de contraproposta é computado (a query nem roda) e os blocos de escada da cauda
+    # saem do prompt (gate espelho no template, grupo n>=1). Sem o congelamento, o n>=1 pós-aceite
+    # renderizava <ja_fez_contraproposta> com a "ÚLTIMA contraproposta" na tela e a IA reabria
+    # negociação sobre valor já aceito. Só o PAR completo congela — `aceita_valor` sem valor
+    # gravado (aceite ambíguo) ou `valor_acordado` sem o sinal (painel/manual também escreve a
+    # coluna, #38) mantêm o comportamento de sempre: fail-closed.
+    escada_congelada_pelo_aceite = valor_aceito and atendimento.get("valor_acordado") is not None
+    if (
+        not escada_congelada_pelo_aceite
+        and escada_estado != "esgotada"
+        and (n_contrapropostas > 0 or (cotacao_na_mesa and not valor_aceito))
     ):
         horas_da_escada = atendimento.get("duracao_horas")
         textos_burst = _textos_do_burst(traduzir_mensagens(linhas)) if linhas else []
+        # O número DELE que vale neste turno — o do burst e, calado o burst, o que sobreviveu na
+        # conversa contígua (`_valor_dele_vigente`). Site único: a LINHA da escada e o ACEITE leem
+        # a MESMA resposta, senão a escada inferiria o degrau por um número e o aceite fecharia
+        # por outro.
+        valor_dele = _valor_dele_vigente(
+            textos_burst,
+            linhas or [],
+            {int(p) for ps in (precos_por_horas or {}).values() for p in ps},
+        )
         if horas_da_escada is None and n_contrapropostas == 0 and linhas:
             # Fallback de duração pelo burst: no turno da objeção `duracao_horas` costuma estar
             # NULL (a extração ainda não gravou), mas "faz 300 a hora?" carrega a duração — sem o
@@ -2297,9 +2825,19 @@ async def _resolver_variaveis(
             # 11/08, trace 854fb661). Ambíguo dos dois lados -> None, e o fail-closed vale.
             horas_da_escada = duracao_pedida_no_burst(traduzir_mensagens(linhas))
             # Fallback 2 (validação ao vivo 11/08): "faz por 300 a hora?"/"faz 300?" não têm
-            # dígito de duração — o valor proposto identifica a linha em negociação.
+            # dígito de duração — o valor proposto identifica a linha em negociação. Sobre o valor
+            # VIGENTE (não só o do burst): no turno em que ele insiste sem repetir o número, a
+            # duração sumia junto com ele e o aceite morria em "ambiguo" antes de chegar ao piso.
             if horas_da_escada is None:
-                horas_da_escada = _horas_da_linha_contraproposta(textos_burst, precos_por_horas)
+                horas_da_escada = _linha_do_valor_proposto(valor_dele, precos_por_horas)
+        else:
+            # Campanha 13/08 (eb04:187007389155571): com o belief JÁ preenchido, ele pode estar
+            # ENVENENADO por pergunta — o valor que o cliente propôs NESTE burst resolve a linha
+            # que ele negocia AGORA e, quando diverge, ela vence (ver `_horas_da_escada_com_burst`).
+            # Burst ambíguo mantém o belief: fail-closed intacto.
+            horas_da_escada = _horas_da_escada_com_burst(
+                horas_da_escada, textos_burst, precos_por_horas
+            )
         # --- ADR-0040: o número que ELE nomeou vem ANTES do número dela --------------------------
         # A ordem é a decisão: com um valor dele que serve, a escada NÃO é consultada (uma query a
         # menos, não a mais) e o template renderiza um bloco só — a coexistência dos dois é
@@ -2308,10 +2846,7 @@ async def _resolver_variaveis(
             conn,
             ctx.modelo_id,
             horas_da_escada,
-            valor_proposto=_valor_proposto_no_burst(
-                textos_burst,
-                {int(p) for ps in (precos_por_horas or {}).values() for p in ps},
-            ),
+            valor_proposto=valor_dele,
             valor_da_mesa=atendimento.get("valor_acordado"),
             encontro=encontro,
             n_contrapropostas=n_contrapropostas,
@@ -2320,7 +2855,24 @@ async def _resolver_variaveis(
         AGENTE_ACEITE_DO_CLIENTE.labels(encontro, motivo).inc()
         if aceite is not None:
             aceite_dele = _num_humano(aceite)
-        elif escada_estado in ("aberta", "ultima"):
+        # O outro lado do MESMO veredito: ele nomeou um número e ele está ABAIXO do piso. É o
+        # carimbo do lowball vivo — e ele independe do dia, porque a `aceite_do_valor_dele` só
+        # esgota por rodada, nunca por `sem_dia`. Quem depende do dia é a OFERTA dela (a escada);
+        # a regra de escalada por insistência abaixo do piso não pode esperar o dia entrar no
+        # belief (campanha c7, `desconto_abaixo_teto`: dois turnos de "150" sem instrução nenhuma
+        # de escalada no prompt, porque ela morava dentro do <escada_disponivel>).
+        pedido_abaixo_do_piso = motivo == "abaixo_do_piso"
+        # ...e a SEGUNDA metade do mesmo veredito, que a regressão de 13/08 mostrou não ser
+        # opcional: lowball vivo diz que ele pediu abaixo do piso, não que ele INSISTIU. A cláusula
+        # de escalada só pode entrar depois de ele ter ouvido a resposta dela (`_piso_ja_recusado`)
+        # — sem o carimbo, o modelo lia a escada de números dele (350 -> 320 -> 280) como
+        # insistência e escalava na primeira aparição, com bolha vazia.
+        insistiu_abaixo_do_piso = pedido_abaixo_do_piso and _piso_ja_recusado(
+            linhas or [],
+            valor_dele,
+            {int(p) for ps in (precos_por_horas or {}).values() for p in ps},
+        )
+        if aceite is None and escada_estado in ("aberta", "ultima"):
             contraproposta_disponivel = _num_humano(
                 await contraproposta_da_escada(
                     conn,
@@ -2380,7 +2932,8 @@ async def _resolver_variaveis(
     tipo_congelado = sem_externo or tipo_atendimento_congelado(
         bloqueio_id=atendimento.get("bloqueio_id"), estado=atendimento.get("estado")
     )
-    antecedencia_min = antecedencia_min_por_tipo(atendimento.get("tipo_atendimento"))
+    antecedencia_do_tipo = antecedencia_min_por_tipo(atendimento.get("tipo_atendimento"))
+    antecedencia_min = antecedencia_do_tipo
     if not tipo_congelado:
         antecedencia_min = max(antecedencia_min, antecedencia_min_por_tipo("externo"))
     horario_minimo = (
@@ -2388,6 +2941,54 @@ async def _resolver_variaveis(
         if agora_tz is not None
         else None
     )
+
+    # O piso não invalida a hora que ELA mesma ofertou (campanha 13/08, ciclo 7 —
+    # eb01:210917388210413). O `horario_minimo` é recalculado a cada turno e ANDA enquanto o cliente
+    # pensa: a IA ofertou "Consigo às 10h" em três turnos com o piso em 10:00, o cliente aceitou 23
+    # min depois com o piso já em 10:30, e ela negou a própria oferta ("às 10h não consigo não") no
+    # instante do fechamento. O piso vale para horário NOVO; o que ela pôs na mesa e não retirou
+    # segue de pé enquanto for fisicamente possível (`piso_com_hora_ofertada` documenta os testes).
+    #
+    # DOIS campos, de propósito: `horario_minimo` (cru) é o que viaja para o State e alimenta o
+    # fallback de tempo imediato da extração; `horario_minimo_apresentado` é o que a IA LÊ. Rebaixar
+    # o cru mudaria também o horário que o fallback GRAVA — outro território, outra decisão.
+    #
+    # A régua da exceção é `antecedencia_do_tipo` (o tipo GRAVADO), NÃO a bumpada — e isso é uma
+    # decisão, não um descuido. O bump conservador existe para a OFERTA ESPONTÂNEA da IA sobreviver
+    # a um flip de tipo dentro do turno (o comentário acima o diz com todas as letras: "a reserva de
+    # um interno às 21:00 com agora=20:41 segue sendo aceita se o CLIENTE a pedir"). Uma hora já
+    # ofertada e aceita não é oferta espontânea: é compromisso, e julgá-la pela régua do externo
+    # ressuscita exatamente o defeito — no caso real (interno, Qualificado, sem reserva) o tipo NÃO
+    # está congelado, então a régua bumpada devolveria 10:30 e a IA voltaria a negar a própria hora.
+    # Medido: com a régua bumpada aqui, `test_caso_real_a_hora_ofertada_sobrevive_ao_piso_que_andou`
+    # falha com 10:30 — ou seja, a exceção inteira vira no-op na família que a motivou.
+    #
+    # CUSTO ACEITO E NOMEADO (revisão LangGraph, 13/08): tipo interno não congelado + cliente que
+    # aceita a hora E flipa para externo na MESMA fala ("10h no meu flat então"). A reserva lê o
+    # tipo novo e recusa com `AntecedenciaInsuficiente` uma hora que a tag apresentou como piso —
+    # recusa CORRETA (ela não teleporta até o flat dele) e recuperável: cai na auto-reoferta
+    # (`reoferta_automatica_habilitada`, ON). É raro e composto; o defeito que a exceção corrige é o
+    # turno de fechamento de TODA conversa antes da reserva existir. Modelo que não faz externo
+    # (`sem_externo`) já congela o tipo e não corre nem esse risco.
+    falas_contiguas = _falas_da_conversa_contigua(linhas) if linhas else []
+    horario_minimo_apresentado = horario_minimo
+    if horario_minimo is not None and agora_tz is not None and linhas:
+        horario_minimo_apresentado = piso_com_hora_ofertada(
+            horario_minimo,
+            horas_em_pauta_da_conversa(falas_contiguas),
+            _em_brt(agora_tz),
+            bloqueios_raw,
+            regras_disp,
+            buffer_min,
+            antecedencia_min=antecedencia_do_tipo,
+        )
+
+    # O DIA que ele já tirou da mesa (campanha 13/08, ciclo 7 — eb04:79981032001710). Mesma fonte
+    # contígua do piso acima, de propósito: a recusa de "hoje" morre com a pausa de 6h pelo mesmo
+    # `_GAP_PAUSA` que já esquece a hora ofertada, sem relógio próprio dentro do detector. É DADO
+    # do turno, não instrução — quem carrega a conduta é o `<dia_recusado>` do `<agenda>`, onde
+    # mora a janela livre de onde a hora sai.
+    dia_recusado = dia_recusado_pelo_cliente(falas_contiguas)
 
     # Fallback do horário a oferecer (#41, 24/07). `horario_minimo` é None sempre que NADA cabe na
     # janela imediata — e aí a tag <horario_minimo> some do prompt EM SILÊNCIO, deixando o contexto
@@ -2417,18 +3018,21 @@ async def _resolver_variaveis(
     # horário do dia. Começa em agora+antecedência (não em `agora`) pra não anunciar janela que o
     # `horario_minimo` já descartou; as duas âncoras saem da MESMA aritmética (`proximo_livre` /
     # `sessoes_disponibilidade` + buffer) e por isso não contradizem esta lista — a redundância é
-    # de PAPEL (âncora instrutiva vs. mapa), não de cálculo.
-    janelas = (
-        janelas_livres(
-            agora_tz + timedelta(minutes=antecedencia_min),
+    # de PAPEL (âncora instrutiva vs. mapa), não de cálculo. Quando a hora que ela já ofertou
+    # rebaixa o piso apresentado, o mapa desce junto (`min` abaixo): âncora dizendo 10:00 e mapa
+    # abrindo em 10:30 é a MESMA contradição, só que dentro do bloco.
+    janelas: list[tuple[datetime, datetime]] = []
+    if agora_tz is not None:
+        inicio_janelas = agora_tz + timedelta(minutes=antecedencia_min)
+        if horario_minimo_apresentado is not None:
+            inicio_janelas = min(inicio_janelas, horario_minimo_apresentado)
+        janelas = janelas_livres(
+            inicio_janelas,
             agora_tz + timedelta(hours=JANELA_AGENDA_HORAS),
             bloqueios_raw,
             regras_disp,
             buffer_min,
         )
-        if agora_tz is not None
-        else []
-    )
 
     # Rodada 6 — a disponibilidade concreta como DADO do foco: a mesma aritmética que alimenta
     # <horario_minimo>/<proximo_horario> vira uma frase pronta ("livre hoje a partir de 22:00"),
@@ -2442,7 +3046,9 @@ async def _resolver_variaveis(
     # mesmo motivo. Converte-se ANTES de formatar, com a MESMA regra do filtro `brt` que o <agenda>
     # aplica (`persona.py:_brt`): aware -> BRT, naive já é local.
     livre_agora: str | None = None
-    ancora_livre = horario_minimo or proximo_horario
+    # Âncora = o piso APRESENTADO (o mesmo número da tag), nunca o cru: dizer "livre hoje a partir
+    # de 10:30" no turno em que a tag diz 10:00 recria a contradição num segundo bloco.
+    ancora_livre = horario_minimo_apresentado or proximo_horario
     if ancora_livre is not None and agora_tz is not None:
         ancora_brt = _em_brt(ancora_livre)
         hhmm = ancora_brt.strftime("%H:%M")
@@ -2504,6 +3110,18 @@ async def _resolver_variaveis(
         horario_evidenciado=bool(atendimento.get("horario_evidenciado")),
         cotacao_enviada=atendimento.get("cotacao_enviada_em") is not None,
     )
+    # Belief estacionário (FIX 2): o carimbo determinístico de "você JÁ pediu isto". Deriva da
+    # MESMA janela contígua do piso de horário acima — nada de coluna nova, nada de inferência do
+    # modelo. Zera sozinho: sem `<ainda_falta>` (o pedido foi atendido) ou no primeiro turno dela
+    # que não cobra, a contagem volta a 0 e o bloco some do prompt.
+    turnos_cobrando_o_mesmo = _turnos_cobrando_o_mesmo(
+        falas_contiguas,
+        ha_pendencia=bool(belief.slots_faltantes),
+        aguarda_confirmacao_da_hora=(
+            atendimento.get("horario_desejado") is not None
+            and not bool(atendimento.get("horario_evidenciado"))
+        ),
+    )
 
     return ContextoDoTurno(
         # Âncora CRUA do turno (BRT naive). O contexto dinâmico não a lê — ele usa `data_atual`/
@@ -2519,7 +3137,15 @@ async def _resolver_variaveis(
         estado_humano=_estado_humano(atendimento.get("estado")),
         tipo_humano=_tipo_humano(atendimento.get("tipo_atendimento")),
         slots_faltantes=belief.slots_faltantes,
-        proximo_passo=belief.proximo_passo,
+        # O passo do belief + o carimbo de INSISTÊNCIA abaixo do piso, quando ele existe. O
+        # `<pedido_abaixo_do_piso>` traz a recusa SEMPRE e a escalada só quando esta frase está
+        # aqui: é o mesmo canal condicional do "ele acabou de pedir suas infos", e é ele que separa
+        # "mais um número menor, ainda sem resposta dela" de "o mesmo pedido depois da recusa".
+        proximo_passo=belief.proximo_passo
+        + (_INSISTENCIA_ABAIXO_DO_PISO if insistiu_abaixo_do_piso else ""),
+        # Quantos turnos DELA, seguidos, já saíram cobrando com este `<ainda_falta>` de pé (FIX 2).
+        # >= 2 acende o `<ja_cobrou_isso>`: a instrução muda a FORMA do turno, nunca o objetivo.
+        turnos_cobrando_o_mesmo=turnos_cobrando_o_mesmo,
         # A leitura mais fresca do que a conversa pede: gravada pela extração do turno ANTERIOR
         # (obrigatória todo turno). O <proximo_passo> deriva do estado; esta vem da conversa.
         acao_pendente=atendimento.get("proxima_acao_esperada"),
@@ -2530,6 +3156,15 @@ async def _resolver_variaveis(
         tipo_atendimento=atendimento.get("tipo_atendimento"),
         urgencia=atendimento.get("urgencia"),
         pix_status=_pix_status_humano(atendimento.get("pix_status")),
+        # Quem paga a corrida no externo. O fato CRU vai para o bloco do extrator; a REDAÇÃO da IA
+        # compõe com o `pix_status` ainda 'nao_solicitado' — o mesmo cruzamento que o gate do
+        # domínio usa (`_solicitar_pix_deslocamento_se_aplicavel`), para os dois nunca discordarem
+        # sobre se a chave sai. Ver os dois campos em `_contexto_do_turno`.
+        deslocamento_por_conta_do_cliente=bool(
+            atendimento.get("deslocamento_por_conta_do_cliente")
+        ),
+        pix_deslocamento_dispensado=bool(atendimento.get("deslocamento_por_conta_do_cliente"))
+        and atendimento.get("pix_status") == "nao_solicitado",
         data_desejada=atendimento.get("data_desejada"),
         horario_desejado=atendimento.get("horario_desejado"),
         # Mesmo booleano do <relogio_do_encontro>: antes de Aguardando_confirmacao o <dia>/<hora>
@@ -2569,6 +3204,7 @@ async def _resolver_variaveis(
         escada_estado=escada_estado,
         contraproposta_disponivel=contraproposta_disponivel,
         aceite_do_valor_dele=aceite_dele,
+        pedido_abaixo_do_piso=pedido_abaixo_do_piso,
         encontro_do_dia=encontro,
         patamar_da_mesa=patamar_da_mesa,
         preco_na_mesa=cotacao_na_mesa and not valor_aceito,
@@ -2629,9 +3265,11 @@ async def _resolver_variaveis(
         bloqueios=bloqueios,
         disponibilidade=disponibilidade,
         horario_minimo=horario_minimo,
+        horario_minimo_apresentado=horario_minimo_apresentado,
         proximo_horario=proximo_horario,
         janelas_livres=janelas,
         min_desde_ultima_msg_cliente=min_desde_ultima_msg_cliente,
+        dia_recusado=dia_recusado,
         combinado_hora=combinado_hora,
         min_para_combinado=min_para_combinado,
         livre_agora=livre_agora,

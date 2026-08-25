@@ -29,7 +29,9 @@ def test_contexto_dinamico_renderiza_agenda_em_brt() -> None:
         estado="Qualificado",
         pix_status="—",
         proximo_passo="combinar horário",
-        horario_minimo=datetime(2026, 6, 25, 21, 0, tzinfo=UTC),  # 18:00 BRT
+        # O piso APRESENTADO é o que a tag imprime (campanha 13/08 c7: o piso cru segue no State,
+        # o apresentado é o que respeita a hora que ela já ofertou).
+        horario_minimo_apresentado=datetime(2026, 6, 25, 21, 0, tzinfo=UTC),  # 18:00 BRT
         bloqueios=[
             {
                 "inicio": datetime(2026, 6, 26, 1, 30, tzinfo=UTC),  # 22:30 BRT, vira o dia (25/06)

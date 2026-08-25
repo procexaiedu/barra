@@ -29,6 +29,16 @@ from barra.settings import get_settings
 _USAGE = {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}
 
 
+@pytest.fixture(autouse=True)
+def _strict_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    # `extracao_strict_habilitada` e ON por default desde 13/08/2026, e `DisparoExtracao` normaliza
+    # a declaracao via `tool_strict_deepseek` — que nao converte a tool FAKE deste arquivo (nao e
+    # BaseTool/pydantic). O assunto aqui e a decisao de ROTA do no, nao a declaracao enviada ao
+    # provider (essa e pinada com a tool REAL em test_extracao_strict.py); desligar aqui e o mesmo
+    # kill-switch que o operador tem por env.
+    monkeypatch.setattr(get_settings(), "extracao_strict_habilitada", False)
+
+
 class _FakeForcado:
     """Bind forcado fake: ainvoke devolve o AIMessage forcado fixo e registra as janelas recebidas."""
 

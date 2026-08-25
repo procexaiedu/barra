@@ -13,6 +13,7 @@ from typing import Any, ClassVar
 
 from barra.agente.nos._contexto_do_turno import ContextoDoTurno
 from barra.agente.nos.prepare_context import (
+    _horas_da_linha_cotada,
     _pacote_maior_na_tabela,
     _par_condicionado_ao_dia,
     _salto_na_mesa,
@@ -42,6 +43,7 @@ def _contexto(**over: Any) -> ContextoDoTurno:
         "tipo_humano": None,
         "slots_faltantes": [],
         "proximo_passo": "",
+        "turnos_cobrando_o_mesmo": 0,
         "acao_pendente": None,
         "intencao": None,
         "tipo_atendimento": None,
@@ -87,6 +89,7 @@ def _contexto(**over: Any) -> ContextoDoTurno:
         "bloqueios": [],
         "disponibilidade": [],
         "horario_minimo": None,
+        "horario_minimo_apresentado": None,
         "proximo_horario": None,
         "janelas_livres": [],
         "min_desde_ultima_msg_cliente": None,
@@ -284,7 +287,7 @@ _CARDAPIO_DA_CATARINA: dict[str, list[dict[str, Any]]] = {
 }
 
 
-async def _turno(fala: str, **over: Any) -> Any:
+async def _turno(fala: str, *, mensagens: Any = None, **over: Any) -> Any:
     from datetime import UTC, datetime
 
     from langchain_core.messages import HumanMessage
@@ -312,7 +315,7 @@ async def _turno(fala: str, **over: Any) -> Any:
     _msgs, contexto, _pecas = await _anexar_contexto_dinamico(
         _FakeConnDoTurno(),  # type: ignore[arg-type]
         ctx,
-        [HumanMessage(fala)],
+        mensagens if mensagens is not None else [HumanMessage(fala)],
         atendimento=atendimento,
         precos_por_horas={1.0: [Decimal("400")], 2.0: [Decimal("800")]},
         cardapio_rows=_CARDAPIO_DA_CATARINA,
@@ -363,4 +366,81 @@ async def test_com_a_escada_ja_descida_nenhuma_das_duas_condutas_renasce() -> No
     contexto = await _turno("e pra nós dois ?", n_contrapropostas=1)
 
     assert contexto.oferta_se_hoje is None
+    assert contexto.pacote_maior is None
+
+
+# --- fallback 3 da duração em pauta: o preço que a PRÓPRIA IA cotou (campanha 13/08) --------------
+# Caso eb02:26311003246742: a IA cotou "400 1h", o belief não gravou `duracao_horas` e o cliente
+# REPERGUNTOU o preço — sem dígito de duração no burst (fallback 1) e sem valor proposto por ele
+# (fallback 2), `duracao_em_pauta` ficava None e o <pacote_maior_na_sua_tabela> sumia da cauda em
+# TODA repergunta de preço antes de alguém nomear duração. O preço que ELA pôs na mesa resolve a
+# linha de volta (`_horas_da_linha_cotada`), com o fail-closed da família.
+
+
+def test_preco_cotado_pela_ia_resolve_a_linha_da_tabela() -> None:
+    """Igualdade EXATA, não "menor linha acima": a cotação sai da tabela por construção — a
+    heurística do valor PROPOSTO (`_horas_da_linha_contraproposta`) pegaria a linha de cima."""
+    assert _horas_da_linha_cotada("400", _tabela()) == 1.0
+    assert _horas_da_linha_cotada("800", _tabela()) == 2.0
+
+
+def test_preco_cotado_que_nao_e_de_linha_nenhuma_e_fail_closed() -> None:
+    """O total com extra ou a contraproposta dela (350) não são preço de tabela: zero linhas
+    casadas -> None, e o degrau degrada como sempre."""
+    assert _horas_da_linha_cotada("350", _tabela()) is None
+
+
+def test_preco_cotado_em_duas_linhas_e_fail_closed() -> None:
+    """Mesmo preço em duas durações: escolher seria chutar a linha — None."""
+    tabela = {1.0: [Decimal("400")], 1.5: [Decimal("400")]}
+
+    assert _horas_da_linha_cotada("400", tabela) is None
+
+
+def test_sem_preco_sem_tabela_ou_preco_ilegivel_devolve_none() -> None:
+    assert _horas_da_linha_cotada(None, _tabela()) is None
+    assert _horas_da_linha_cotada("400", None) is None
+    assert _horas_da_linha_cotada("uns 400", _tabela()) is None
+
+
+async def test_repergunta_de_preco_sem_belief_reancora_pelo_preco_cotado() -> None:
+    """O turno inteiro do eb02: cotação de "400 1h" na janela, belief sem duração e sem valor, e
+    ele repergunta o preço — o degrau de upsell (2h/800) volta a renderizar."""
+    from datetime import UTC, datetime
+
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    contexto = await _turno(
+        "quanto fica mesmo?",
+        mensagens=[
+            AIMessage("Fica 400 1h no meu local amor"),
+            HumanMessage("quanto fica mesmo?"),
+        ],
+        duracao_horas=None,
+        valor_acordado=None,
+        cotacao_enviada_em=datetime(2026, 8, 13, 12, 0, tzinfo=UTC),
+    )
+
+    assert contexto.preco_cotado_valor == "400"
+    assert contexto.pacote_maior == {"horas": "2", "preco": "800"}
+
+
+async def test_repergunta_com_cotacao_fora_da_tabela_segue_fail_closed() -> None:
+    """A cotação vigente é uma contraproposta dela (500, que não é linha da tabela): nada a
+    resolver — o comportamento antigo (sem degrau) fica de pé."""
+    from datetime import UTC, datetime
+
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    contexto = await _turno(
+        "quanto fica mesmo?",
+        mensagens=[
+            AIMessage("consigo 500 se vier hoje amor"),
+            HumanMessage("quanto fica mesmo?"),
+        ],
+        duracao_horas=None,
+        valor_acordado=None,
+        cotacao_enviada_em=datetime(2026, 8, 13, 12, 0, tzinfo=UTC),
+    )
+
     assert contexto.pacote_maior is None

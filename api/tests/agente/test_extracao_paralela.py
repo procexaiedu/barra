@@ -116,7 +116,11 @@ async def _drenar() -> None:
 
 
 def _runtime() -> SimpleNamespace:
-    return SimpleNamespace(context=SimpleNamespace(turno_id="t-1"), stream_writer=None, store=None)
+    return SimpleNamespace(
+        context=SimpleNamespace(turno_id="t-1", turno_deadline_mono=None),
+        stream_writer=None,
+        store=None,
+    )
 
 
 def _fala(content: str = "às 22h te serve?", id_: str = "resp-1") -> AIMessage:
@@ -212,6 +216,15 @@ def _montar(
     no_l = no_llm(chat, tools or [], disparo)  # type: ignore[arg-type]
     no_e = no_extrair(chat, extracao, tool, disparo)  # type: ignore[arg-type]
     return no_l, no_e, disparo
+
+
+@pytest.fixture(autouse=True)
+def _strict_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    # `extracao_strict_habilitada` e ON por default desde 13/08/2026, e `DisparoExtracao` normaliza
+    # a declaracao via `tool_strict_deepseek` — que nao converte a tool FAKE deste arquivo. O
+    # assunto aqui e o PARALELISMO do disparo, nao a declaracao (pinada com a tool real em
+    # test_extracao_strict.py); desligar aqui e o mesmo kill-switch que o operador tem por env.
+    monkeypatch.setattr(get_settings(), "extracao_strict_habilitada", False)
 
 
 @pytest.fixture

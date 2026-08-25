@@ -17,7 +17,6 @@ from barra.agente._disciplina import contem_pedido_de_infos
 @pytest.mark.parametrize(
     "fala",
     [
-        "Olá, Júlia. Peguei seu contato no site. Gostaria de informações sobre seu atendimento",
         "gostaria de informações",
         "Gostaria de mais informações amor",
         "gostaria de saber mais",
@@ -44,4 +43,21 @@ def test_pedido_de_apresentacao_e_detectado(fala: str) -> None:
     ],
 )
 def test_fora_da_familia_nao_acende_o_pitch(fala: str) -> None:
+    assert not contem_pedido_de_infos(fala)
+
+
+@pytest.mark.parametrize(
+    "fala",
+    [
+        "Olá, Júlia. Peguei seu contato no site. Gostaria de informações sobre seu atendimento",
+        "Oi, vi seu anúncio no site. Gostaria de mais detalhes",
+    ],
+)
+def test_ancora_do_site_veta_o_pitch(fala: str) -> None:
+    """REVERSÃO DELIBERADA do pino da r2 (campanha 13/08): o template do site casava o detector e
+    o <proximo_passo> injetava "apresente completo de uma vez" — o oposto do que a <abertura>
+    (regras.md.j2) manda para a MESMA âncora ("só cumprimente e deixe ele falar"). As duas
+    instruções conviviam no mesmo prompt em praticamente todo lead de site; a <abertura> vence
+    porque é a conduta validada (o vendedor real faz o mesmo e o cliente volta). O que ele
+    DIGITOU sem a âncora segue acendendo o pitch (testes positivos acima)."""
     assert not contem_pedido_de_infos(fala)

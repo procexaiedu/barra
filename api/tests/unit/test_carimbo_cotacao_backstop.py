@@ -21,6 +21,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from evals.e2e.persistencia import gravar_resposta_ia
+from evals.e2e.runner import ESTADO_INICIAL_PADRAO
 from evals.harness import Cenario
 from evals.sequencia import avaliar_sequencia, derivar_eventos
 
@@ -153,10 +154,16 @@ def test_ordem_aceita_a_cotacao_sem_o_flag_do_llm() -> None:
             _turno("Oii\n\nBom dia amor 🥰", estado="Triagem", args={"intencao": "informacao"}),
             _turno(COTACAO_MEDIDA, estado="Triagem", args={"intencao": "cotacao"}),
             _turno("Consigo sim amor\n\nSeria agora ?", estado="Aguardando_confirmacao"),
-        ]
+        ],
+        # O caso medido nasce no default (`Novo`) — o validador le o estado seedado p/ nao
+        # confundir estado PRE-EXISTENTE com transicao da corrida (ver `evals.sequencia`).
+        estado_inicial=ESTADO_INICIAL_PADRAO,
+        # Sem cotacao SEMEADA: este teste mede o backstop, que so vale quando a cotacao tem
+        # de sair da propria corrida. Cenario de remarcacao seeda `True` e isenta por fato.
+        cotacao_inicial=False,
     )
 
-    assert "cotacao_apresentada" in derivar_eventos(res)
+    assert "cotacao_apresentada" in derivar_eventos(res)  # type: ignore[arg-type]
     assert avaliar_sequencia(res) == []  # type: ignore[arg-type]
 
 
@@ -170,7 +177,9 @@ def test_ordem_ainda_acusa_confirmacao_sem_preco_nenhum() -> None:
                 estado="Aguardando_confirmacao",
                 args={"horario_desejado": "22:00"},
             ),
-        ]
+        ],
+        estado_inicial=ESTADO_INICIAL_PADRAO,
+        cotacao_inicial=False,
     )
 
     falhas = avaliar_sequencia(res)  # type: ignore[arg-type]

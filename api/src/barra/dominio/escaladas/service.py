@@ -547,6 +547,32 @@ def mapear_bucket(motivo: str) -> str:
     return "defesa" if motivo in _BUCKET_DEFESA else "capacidade"
 
 
+FASE_DESCONHECIDA = "desconhecida"
+
+
+async def fase_do_atendimento(conn: AsyncConnection[Any], atendimento_id: UUID) -> str:
+    """Label `fase` das metricas de escalada: o ESTADO do atendimento na abertura do handoff.
+
+    Fonte unica das quatro superficies que contam escalada (tool `escalar`, defesas do agente,
+    rede de saida do envio, coordenador) mais a porta B do dominio, para que a label signifique a
+    MESMA coisa em todas. Cardinalidade fechada pelo `estado_atendimento_enum` (8 valores) +
+    ``desconhecida`` — atendimento inexistente/apagado nao pode virar serie nova nem estourar a
+    contagem. Leitura, sem transacao propria: quem chama ja esta dentro da do turno.
+
+    Chame ANTES de `abrir_handoff` quando o handoff puder mexer no estado; hoje ele nao mexe (so
+    `ia_pausada`/`responsavel_atual`), entao a ordem nao muda o valor.
+    """
+    res = await conn.execute(
+        "SELECT estado::text AS estado FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    # `.get` e nao `["estado"]` de proposito: isto e uma LABEL de metrica, e nenhum handoff pode
+    # morrer por causa dela — atendimento apagado, coluna ausente ou conexao dublada em teste caem
+    # todos no mesmo `desconhecida`, e a escalada segue de pe.
+    row = await res.fetchone()
+    return str((row or {}).get("estado") or FASE_DESCONHECIDA)
+
+
 # Observacao canonica da escalada de lembrete-sem-resposta (espelha
 # `workers/lembrete_valor.OBS_ESCALADA`, que a importa daqui). Vive no dominio porque a regra de
 # audiencia abaixo precisa dela e `dominio/` nao pode depender de `workers/` (direcao das deps).

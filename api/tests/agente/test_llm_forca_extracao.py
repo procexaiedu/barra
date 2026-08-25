@@ -53,7 +53,7 @@ class _FakeChat:
 
 
 def _runtime() -> SimpleNamespace:
-    return SimpleNamespace(context=SimpleNamespace(turno_id="t-1"))
+    return SimpleNamespace(context=SimpleNamespace(turno_id="t-1", turno_deadline_mono=None))
 
 
 def _texto_final() -> AIMessage:

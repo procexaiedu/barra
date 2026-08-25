@@ -57,19 +57,33 @@ _DESC_DE = (
 # passe não tinha contrato nenhum: em `objetivo_rapido` t1 (trace 66b8161e) o modelo re-emitiu
 # "Seria que horas hoje amor ?" depois do retorno e o cliente recebeu a pergunta DUAS vezes — o
 # texto da 1ª passagem já está no turno e já vai ser despachado.
+#
+# A 1ª metade foi reescrita em 13/08 (ciclo 7, regressão de `duvida_das_fotos`): o retorno antigo
+# ("anexada (enviada após o texto)… a mídia sai do mesmo jeito") era prosa sobre a MECÂNICA DO
+# ENVIO, e o modelo a parafraseava como bolha ao cliente — "As mídias já saíram junto com a minha
+# mensagem" (eb04:23966555099311 t12). Este retorno é mensagem de SISTEMA para ela, não fala: é
+# enquadrado como registro interno, proíbe o repasse com todas as letras e não descreve mais
+# quando/junto-de-que a mídia sai. O "neste turno" é deliberado: se o modelo copiar o retorno
+# verbatim, ele casa `_MARCADORES_RACIOCINIO` do output_guard e a bolha morre no Estágio 0.
 _CONFIRMACAO = (
-    "{tipo} de '{tag}' anexada (enviada após o texto). O texto que você já escreveu neste turno "
-    "JÁ vai ao cliente: não repita nenhuma bolha dele. Se não tiver nada NOVO a dizer, responda "
-    "vazio — a mídia sai do mesmo jeito."
+    "[registro interno do sistema — não é fala e não se repassa ao cliente] {tipo} de '{tag}' "
+    "anexada neste turno. NÃO narre o envio (nem como, nem quando, nem junto de que a mídia vai): "
+    "ele vê a mídia chegar e não precisa de explicação nenhuma. As bolhas que você já escreveu "
+    "neste turno JÁ vão ao cliente: não repita nenhuma delas. Sem nada NOVO a dizer, responda "
+    "vazio."
 )
 # Foto da PARCEIRA: mesma mecânica, conduta diferente. O lembrete do book existe porque a foto
 # dela chega ao cliente como qualquer outra e o modelo tende a tratar mídia enviada como "book
 # feito" — aqui o sistema garante que não é (o carimbo `book_enviado_em` não sai), e a instrução
 # alinha a fala com o que o sistema fez.
+#
+# Reescrito junto com `_CONFIRMACAO` (mesma superfície, mesma lição: corrigir uma e deixar a outra
+# é não corrigir) — a mesma prosa de mecânica ("enviada após o texto") estava aqui.
 _CONFIRMACAO_PARCEIRA = (
-    "{tipo} da sua parceira anexada (enviada após o texto). Ela NÃO é o seu book — o seu segue "
-    "disponível. O texto que você já escreveu neste turno JÁ vai ao cliente: não repita nenhuma "
-    "bolha dele, e não descreva a foto."
+    "[registro interno do sistema — não é fala e não se repassa ao cliente] {tipo} da sua "
+    "parceira anexada neste turno. Ela NÃO é o seu book — o seu segue disponível. NÃO narre o "
+    "envio nem descreva a foto. As bolhas que você já escreveu neste turno JÁ vão ao cliente: "
+    "não repita nenhuma delas."
 )
 _ERRO_SEM_PARCEIRA = "ERRO: você não tem parceira cadastrada. Não prometa foto dela."
 

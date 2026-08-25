@@ -42,6 +42,14 @@ class ContextoDoTurno:
     tipo_humano: str | None
     slots_faltantes: list[str]
     proximo_passo: str
+    # Quantos turnos DELA, seguidos e no fim da conversa CONTÍGUA, já saíram cobrando enquanto
+    # `slots_faltantes` continua cheio (`_turnos_cobrando_o_mesmo`, prepare_context). É o carimbo
+    # determinístico do belief estacionário: quando a FSM trava, o mesmo `<proximo_passo>` sai
+    # byte-idêntico por até 17 turnos e o modelo obedece (campanha 13/08, 915 turnos). DERIVADO,
+    # não persistido — o grafo compila sem checkpointer, então o State não atravessa o turno, e a
+    # janela já prova as duas metades ("ela pediu N vezes" + "continua faltando") sem coluna nova.
+    # 0 = nada a carimbar; o template acende o `<ja_cobrou_isso>` a partir de 2.
+    turnos_cobrando_o_mesmo: int
     # A `proxima_acao_esperada` que a EXTRAÇÃO do turno anterior gravou (obrigatória todo turno,
     # ja_registrado.md.j2) — renderizada de volta como <acao_pendente>: é a leitura mais fresca do
     # que a conversa pede, enquanto o <proximo_passo> deriva do estado (um turno atrás). Diagnóstico
@@ -145,7 +153,16 @@ class ContextoDoTurno:
     # Agenda das próximas 48h, com a aritmética já feita em Python (a IA só verbaliza).
     bloqueios: list[dict[str, Any]]
     disponibilidade: list[dict[str, Any]]
+    # `horario_minimo` é o piso CRU (`arredonda_acima(agora + antecedência)`, ajustado a bloqueios
+    # e Disponibilidade). Quem o lê é o STATE — a tool `registrar_extracao` o usa no fallback de
+    # tempo imediato (estado.py) —, e por isso ele não muda aqui.
+    # `horario_minimo_apresentado` é o piso que a IA LÊ na tag `<horario_minimo>`: o mesmo valor,
+    # rebaixado até uma hora que ela já ofertou e que segue de pé (`piso_com_hora_ofertada`,
+    # campanha 13/08 c7 — o piso recalculado invalidava a hora que ela mesma tinha ofertado quatro
+    # vezes, no turno do fechamento). São dois campos porque são dois consumidores: mexer no piso
+    # cru mudaria também o horário que o fallback GRAVA, e isso é decisão do dono do produto.
     horario_minimo: datetime | None
+    horario_minimo_apresentado: datetime | None
     proximo_horario: datetime | None
     janelas_livres: list[tuple[datetime, datetime]]
 
@@ -157,6 +174,20 @@ class ContextoDoTurno:
     # Resolvidos depois das queries, sobre a janela do turno — default para a construção não
     # precisar antecipá-los (ver `_anexar_contexto_dinamico`).
     dia_ja_sondado: bool = False
+    # A hora que ela cobrou provavelmente está DE PÉ, sem que nenhuma fala reconhecível a tenha
+    # confirmado (`aceite_provavel_sem_confirmacao`, nos/_janela_do_turno): há âncora (ela propôs a
+    # hora e cobrou o fechamento), ele seguiu conversando por ≥2 turnos e nada reabriu nem adiou.
+    #
+    # ⚠️ SÓ REDAÇÃO. Este campo NUNCA promove estado: não grava `horario_evidenciado`, não promove
+    # `Qualificado -> Aguardando_confirmacao`, não reserva agenda e não liga Pix. Quem faz isso
+    # continua sendo `horario_evidenciado` (a coluna), com o detector que EXIGE adesão. A assimetria
+    # é medida e deliberada: aqui o falso positivo custa uma frase mais macia; lá custaria a agenda
+    # da modelo bloqueada por quem não combinou nada. Se você veio "melhorar" isto ligando estado a
+    # partir daqui, leia o docstring de `aceite_provavel_sem_confirmacao` antes.
+    #
+    # Default False = o texto categórico de hoje ("ofereça esta hora e espere o sim"), que é o certo
+    # nos turnos em que ele de fato não deu sinal nenhum.
+    aceite_provavel_da_hora: bool = False
     # O rótulo do dia do encontro ("hoje" | "ainda hoje (madrugada)" | "amanhã" | "em N dias" |
     # "já passou"), resolvido em Python DEPOIS do A2 do dia (`_quando_do_encontro`). Vem daqui e
     # não de uma conta no template porque `(data_desejada - data_atual).days` mente na virada da
@@ -195,6 +226,12 @@ class ContextoDoTurno:
     # "seria hoje?" vago (derrota medida: preço nu / confirmação decorativa, fechamento 77%).
     # None = agenda sem âncora = os blocos degradam para o avanço sem número (fail-closed).
     livre_agora: str | None = None
+    # O DIA que o CLIENTE tirou da mesa e não reabriu, como rótulo humano ("hoje", "amanhã",
+    # "sexta") — `dia_recusado_pelo_cliente` sobre a conversa CONTÍGUA (campanha 13/08, ciclo 7:
+    # ele disse três vezes que hoje não dava e a IA ofertou 11h e 14h do mesmo dia). Dado, não
+    # instrução: a conduta mora no `<dia_recusado>` do `<agenda>`, junto da janela livre de onde a
+    # hora sai. None = nenhum dia recusado (ou a pausa de 6h já apagou a recusa) e nada renderiza.
+    dia_recusado: str | None = None
     # Rodada 6 — burst atual é SÓ aceite curto ("Perfeito"/"Certo"): o turno é de avançar, não de
     # repetir preço/pitch já dados (derrota medida: re-cotação pós-aceite). Vocabulário fechado
     # de `_e_afirmacao_curta`; False = nada muda no prompt.
@@ -250,6 +287,25 @@ class ContextoDoTurno:
     # confundir. Com a duração dita por ele, o bloco não pergunta o tempo; só oferece o pacote maior.
     tempo_dele_desconhecido: bool = False
 
+    # --- Cauda de fechamento (campanha 13/08, M4d) -----------------------------------------------
+    # Ele adiou SEM data ("semana que vem te falo", "qualquer dia desses") com preço já na mesa:
+    # detector determinístico do burst (`janela_futura_vaga_no_burst`) cruzado com a cotação do
+    # belief em `_anexar_contexto_dinamico`. False = o bloco não renderiza (fail-closed).
+    janela_futura_vaga: bool = False
+    # O outro lado do veredito do ADR-0040: ele nomeou um número e ele está ABAIXO do piso da linha
+    # (`aceite_do_valor_dele` devolveu `abaixo_do_piso`). Lowball VIVO — inclusive no turno em que
+    # ele insiste sem repetir o número, porque o valor dele sobrevive ao burst
+    # (`_valor_dele_vigente`). Gate do <pedido_abaixo_do_piso>, que carrega a regra de escalada por
+    # insistência: ela morava dentro do <escada_disponivel> e só chegava DEPOIS de o dia entrar no
+    # belief — dois turnos de lowball sem instrução nenhuma (campanha c7, `desconto_abaixo_teto`).
+    # False = ele não pediu abaixo do piso NESTE turno e o bloco não renderiza (fail-closed).
+    pedido_abaixo_do_piso: bool = False
+    # Ele está desistindo por um item que o cardápio dela NÃO tem: desistência no burst
+    # (`desistencia_no_burst`) + alguma família da JANELA resolvida como "fora" contra o cadastro
+    # — e sem fluxo de parceira em pauta (o encaminhamento do ADR-0042 tem conduta própria; as
+    # duas juntas puxariam a fala em direções opostas). False = o bloco não renderiza.
+    desistencia_fora_do_cardapio: bool = False
+
     # --- Parceira (ADR-0042) ---------------------------------------------------------------------
     # Os dois fluxos que partem da MESMA pessoa e divergem em tudo. `parceira_fluxo` é a saída do
     # discriminante determinístico (`agente/_parceria.py:fluxo_da_parceira`) — "encaminhamento",
@@ -273,6 +329,24 @@ class ContextoDoTurno:
     # pagamento JA esta gravada — ela foi inventada e nunca revertida em prod (2x no diag 11/08),
     # e campo invisivel no bloco de estado e campo que ninguem corrige.
     forma_pagamento: str | None = None
+    # --- Quem paga a corrida no externo (migration 20260814175416) -------------------------------
+    # DOIS campos porque sao DOIS leitores com perguntas diferentes — a mesma coluna, lida por
+    # criterios distintos. Juntar num so obrigaria um dos dois a mentir.
+    #
+    # O FATO CRU (`atendimentos.deslocamento_por_conta_do_cliente`), lido so pelo `ja_registrado`
+    # (o EXTRATOR): e o unico jeito de ele saber que o fato JA esta gravado e, principalmente, de
+    # detectar a RETRATACAO ("pode chamar voce mesma"), que exige regravar o campo como False.
+    # Campo invisivel no bloco de estado e campo que ninguem corrige (mesmo motivo do
+    # `forma_pagamento` acima). O tri-estado da coluna colapsa aqui (NULL e False dao "nao"):
+    # o bloco de estado so precisa dizer o que esta gravado como verdadeiro.
+    deslocamento_por_conta_do_cliente: bool = False
+    # A REDACAO, lida so pelo `contexto_dinamico` (a IA): o fato cru E o Pix ainda nao pedido.
+    # Sem o segundo termo, o atendimento em que a chave JA saiu (ele decidiu chamar o uber depois
+    # de a bolha ter ido) receberia "nao peca comprovante" — e a bolha esta com o cliente, podendo
+    # ate ja ter sido paga. Nesse cruzamento vale a conduta de sempre ("nao reanuncie"), que o
+    # dominio tambem respeita: o gate do Pix so olha esta coluna enquanto `pix_status` e
+    # 'nao_solicitado'. Fail-closed: sem dado, o bloco de sempre.
+    pix_deslocamento_dispensado: bool = False
 
     def como_variaveis(self) -> dict[str, Any]:
         """Dicionário para o `render(**variaveis)` dos templates. Raso de propósito: os valores

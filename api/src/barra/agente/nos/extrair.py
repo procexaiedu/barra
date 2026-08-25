@@ -50,7 +50,13 @@ from langgraph.prebuilt import ToolRuntime
 from langgraph.runtime import Runtime
 from langgraph.types import Command
 
-from barra.core.llm import PARADA_INSEGURA, motivo_parada, nome_modelo, nomear_run
+from barra.core.llm import (
+    PARADA_INSEGURA,
+    motivo_parada,
+    nome_modelo,
+    nomear_run,
+    tool_strict_deepseek,
+)
 from barra.core.metrics import (
     AGENTE_EXTRACAO_APELIDO,
     AGENTE_EXTRACAO_CAMPO_DESCARTADO,
@@ -196,9 +202,18 @@ class DisparoExtracao:
         self._forcado = nomear_run(
             chat.bind_tools([tool_extracao], tool_choice=_TOOL_EXTRACAO), "extracao_forcada"
         )
+        # `strict` (Beta) so entra no braco BARATO: e o unico com chat proprio, entao o endpoint
+        # `/beta` que o strict exige nao contamina o chat #1. Binda o DICT normalizado
+        # (`tool_strict_deepseek`) em vez da BaseTool — so o dict carrega `strict`/`required`
+        # completos; a EXECUCAO segue na BaseTool (`_executar_extracao`), que nao passa por ali.
+        # Com a flag OFF nada muda: mesma BaseTool, mesmo endpoint, schema byte-identico ao de antes.
+        cfg = settings or get_settings()
+        declaracao: Any = (
+            tool_strict_deepseek(tool_extracao) if cfg.extracao_strict_habilitada else tool_extracao
+        )
         self._forcado_barato = (
             nomear_run(
-                chat_extracao_barata.bind_tools([tool_extracao], tool_choice=_TOOL_EXTRACAO),
+                chat_extracao_barata.bind_tools([declaracao], tool_choice=_TOOL_EXTRACAO),
                 "extracao_forcada_barata",
             )
             if chat_extracao_barata is not None
@@ -211,8 +226,9 @@ class DisparoExtracao:
         # Kill-switch lido na CONSTRUCAO (padrao da casa: reoferta_automatica_habilitada etc.).
         # Do `settings` INJETADO, nunca do global: o `build_graph` aceita um Settings proprio, e ler
         # o global aqui faria o guard de checkpointer (graph.py) julgar uma flag diferente da que
-        # vale para este grafo — deixando passar exatamente o caso que ele existe p/ barrar.
-        self.habilitado = (settings or get_settings()).extracao_paralela_habilitada
+        # vale para este grafo — deixando passar exatamente o caso que ele existe p/ barrar. Mesmo
+        # `cfg` da declaracao acima, pela mesma razao.
+        self.habilitado = cfg.extracao_paralela_habilitada
 
     @property
     def _system_minimo(self) -> bool:

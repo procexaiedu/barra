@@ -195,7 +195,7 @@ async def test_escalar_com_handoff_ja_aberto_nao_inventa_escalada(
     atendimento_id = await _seed_atendimento(conn)
 
     r1 = await _escalar(conn, atendimento_id, "jailbreak_attempt", str(uuid4()))
-    antes = AGENTE_ESCALADA.labels("defesa", "conteudo_ilegal")._value.get()
+    antes = AGENTE_ESCALADA.labels("defesa", "conteudo_ilegal", "Triagem")._value.get()
     # Turno DIFERENTE (a idempotencia por tool_call nao cobre) e motivo DIFERENTE.
     r2 = await _escalar(conn, atendimento_id, "conteudo_ilegal", str(uuid4()))
 
@@ -204,7 +204,7 @@ async def test_escalar_com_handoff_ja_aberto_nao_inventa_escalada(
     assert r2["escalada_id"] is None, "id de escalada que nao foi criada"
     assert r2["reaproveitada"] is True
     # A metrica so conta o que virou linha na tabela.
-    assert AGENTE_ESCALADA.labels("defesa", "conteudo_ilegal")._value.get() == antes
+    assert AGENTE_ESCALADA.labels("defesa", "conteudo_ilegal", "Triagem")._value.get() == antes
 
     escaladas = await _ler_escaladas(conn, atendimento_id)
     assert len(escaladas) == 1

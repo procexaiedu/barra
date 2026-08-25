@@ -74,6 +74,33 @@ def antecedencia_min_por_tipo(tipo_atendimento: str | None) -> int:
     )
 
 
+def buffer_do_bloqueio_min(tipo_atendimento: str | None, *, buffer_min: int | None = None) -> int:
+    """Gap (min) que um bloqueio exige AO SEU REDOR, pelo deslocamento que ele impoe.
+
+    FONTE UNICA do "quem paga o buffer maior" (emenda ADR 0025, 2026-08-14), espelhando em Python
+    o `CASE` de `existe_vizinho_no_buffer` — as duas leituras precisam dar o MESMO numero, senao a
+    IA publica um horario que a reserva recusa (foi assim que a antecedencia se partiu em duas
+    copias na prova r3; ver `antecedencia_min_por_tipo`).
+
+    `externo` = o compromisso acontece fora do local dela, entao ha uma VIAGEM colada nele:
+    `agenda_buffer_externo_min`. Qualquer outro valor — `interno`, `remoto` ou None (desconhecido,
+    o caso de todo bloqueio que nao declara tipo) — paga o gap padrao `agenda_buffer_min`, isto e,
+    exatamente o comportamento anterior a esta emenda.
+
+    O gap vale dos DOIS lados do bloqueio externo (ida e volta da mesma viagem) porque quem o
+    paga e o bloqueio EXTERNO, nao o vizinho dele: a decisao sai do tipo de um bloqueio que ja
+    existe, o unico dado que a camada de conversa (`_proximo_livre`/`_janelas_livres`, que so
+    enxergam vizinhos) e a reserva (que enxerga vizinhos + o novo) tem em comum.
+
+    `buffer_min` explicito serve aos chamadores que ja carregam o numero (o pre-calculo do prompt
+    recebe o buffer como parametro); None le das settings.
+    """
+    s = get_settings()
+    if tipo_atendimento == "externo":
+        return s.agenda_buffer_externo_min
+    return s.agenda_buffer_min if buffer_min is None else buffer_min
+
+
 async def existe_vizinho_no_buffer(
     conn: AsyncConnection[Any],
     *,
@@ -81,26 +108,55 @@ async def existe_vizinho_no_buffer(
     inicio: datetime,
     fim: datetime,
     buffer_min: int,
+    buffer_externo_min: int | None = None,
     excluir_id: Any | None = None,
 ) -> bool:
-    """True se ha um bloqueio ATIVO da modelo a menos de `buffer_min` do intervalo [inicio, fim]
+    """True se ha um bloqueio ATIVO da modelo a menos do buffer DELE do intervalo [inicio, fim]
     (ADR 0025, gap >= buffer). Condicao do ADR: new.inicio < f2 + buffer AND i2 < new.fim + buffer.
     A EXCLUDE `bloqueios_sem_sobreposicao` so barra sobreposicao real ('[)'); a adjacencia colada
     (fim == inicio) e a quase-adjacencia caem aqui. `excluir_id` ignora o proprio bloqueio (PATCH).
-    Reusado pela IA (`criar_bloqueio_previo`) e pelo painel (POST/PATCH /bloqueios)."""
-    params: list[Any] = [modelo_id, inicio, buffer_min, fim, buffer_min]
+    Reusado pela IA (`criar_bloqueio_previo`) e pelo painel (POST/PATCH /bloqueios).
+
+    O buffer e POR VIZINHO (emenda 2026-08-14): o vizinho EXTERNO — o compromisso na casa de um
+    cliente — cobra `buffer_externo_min` porque tem uma viagem colada nele; os demais cobram
+    `buffer_min`. O tipo e DERIVADO do atendimento vinculado e so cai na coluna propria do bloqueio
+    quando ela existe (bloqueio avulso, override do painel): `COALESCE(b.tipo_atendimento,
+    a.tipo_atendimento)` — uma copia congelada no bloqueio nao acompanharia o cliente que troca de
+    ideia sobre o tipo no meio do turno. Vizinho sem tipo em nenhum dos dois lados = `buffer_min`,
+    o comportamento de sempre.
+
+    O mesmo CASE nos DOIS predicados: o de cima e o gap DEPOIS do vizinho (ela voltando), o de
+    baixo e o gap ANTES dele (ela indo) — a viagem existe nas duas pontas e o `Consequences` do
+    ADR 0025 ja registrava que 30 min "pode ser curto para o deslocamento".
+    """
+    if buffer_externo_min is None:
+        buffer_externo_min = get_settings().agenda_buffer_externo_min
+    params: list[Any] = [
+        modelo_id,
+        inicio,
+        buffer_externo_min,
+        buffer_min,
+        fim,
+        buffer_externo_min,
+        buffer_min,
+    ]
     filtro_self = ""
     if excluir_id is not None:
-        filtro_self = "AND id <> %s"
+        filtro_self = "AND b.id <> %s"
         params.append(excluir_id)
     res = await conn.execute(
         f"""
         SELECT 1
-          FROM barravips.bloqueios
-         WHERE modelo_id = %s
-           AND estado IN ('bloqueado', 'em_atendimento')
-           AND fim    > %s - make_interval(mins => %s)
-           AND inicio < %s + make_interval(mins => %s)
+          FROM barravips.bloqueios b
+          LEFT JOIN barravips.atendimentos a ON a.id = b.atendimento_id
+         WHERE b.modelo_id = %s
+           AND b.estado IN ('bloqueado', 'em_atendimento')
+           AND b.fim    > %s - make_interval(mins => CASE
+                 WHEN COALESCE(b.tipo_atendimento, a.tipo_atendimento) = 'externo' THEN %s
+                 ELSE %s END)
+           AND b.inicio < %s + make_interval(mins => CASE
+                 WHEN COALESCE(b.tipo_atendimento, a.tipo_atendimento) = 'externo' THEN %s
+                 ELSE %s END)
            {filtro_self}
          LIMIT 1
         """,
@@ -121,8 +177,9 @@ async def criar_bloqueio_previo(
     DURACAO_PADRAO_HORAS). Buffer de preparo/intervalo (ADR 0025 + emenda 2026-06-26) e regra DURA:
     antecedencia minima por DESLOCAMENTO (sem deslocamento da modelo -> `agenda_antecedencia_sem_
     deslocamento_min`, ~0; externo-Uber -> `agenda_buffer_min`; inicio < now + antecedencia ->
-    `AntecedenciaInsuficiente`) e gap entre atendimentos (vizinho ativo dentro de `agenda_buffer_min`
-    -> `ConflitoAgenda`, todos os tipos). Serializa o booking por modelo
+    `AntecedenciaInsuficiente`) e gap entre atendimentos (vizinho ativo dentro do buffer DELE ->
+    `ConflitoAgenda`; `agenda_buffer_min`, ou `agenda_buffer_externo_min` quando o vizinho e
+    externo — emenda 2026-08-14). Serializa o booking por modelo
     com `pg_advisory_xact_lock` (mesmo padrao do trigger gen_numero_curto, 0001_schema_inicial.sql:193);
     a EXCLUDE `bloqueios_sem_sobreposicao` (0001:515) e o backstop de sobreposicao real. Cada erro
     recuperavel reverte o turno e a tool reoferta (ConflitoAgenda) ou ancora no horario_minimo
@@ -188,7 +245,8 @@ async def criar_bloqueio_previo(
     # aqui o teto e cru, pois qualquer inicio >= horario_minimo ja o satisfaz. Por DESLOCAMENTO: quem
     # NAO se desloca (interno, remoto) recebe agora como o humano (antecedencia ~0); o
     # externo-Uber (modelo se desloca + Pix) mantem o piso = agenda_buffer_min.
-    # O gap entre atendimentos (existe_vizinho_no_buffer, abaixo) segue agenda_buffer_min p/ todos.
+    # O gap entre atendimentos (existe_vizinho_no_buffer, abaixo) e por VIZINHO desde a emenda de
+    # 2026-08-14: vizinho externo cobra agenda_buffer_externo_min, o resto segue agenda_buffer_min.
     s = get_settings()
     buffer = s.agenda_buffer_min
     # FONTE UNICA com o `<horario_minimo>` do prompt (`antecedencia_min_por_tipo`, acima): sao a
@@ -206,6 +264,7 @@ async def criar_bloqueio_previo(
         (str(modelo_id),),
     )
     # Gap entre atendimentos (ADR 0025): vizinho ativo dentro do buffer -> rejeita (gap >= buffer).
+    # O buffer do vizinho EXTERNO e maior (viagem colada nele) e sai das settings dentro da funcao.
     if await existe_vizinho_no_buffer(
         conn, modelo_id=modelo_id, inicio=inicio, fim=fim, buffer_min=buffer
     ):

@@ -19,7 +19,7 @@ import unicodedata
 from collections.abc import Sequence
 from contextlib import AbstractContextManager, nullcontext
 from datetime import UTC, datetime
-from time import perf_counter
+from time import monotonic, perf_counter
 from typing import Any
 from uuid import UUID, uuid5
 
@@ -533,6 +533,11 @@ async def processar_turno(
                     # prod inalterada); o harness fiel injeta `agora_override` p/ fixar o relogio do
                     # turno e tornar agenda/bordas deterministicas.
                     agora_utc=ctx.get("agora_override"),
+                    # Prazo do turno (monotonic): o output_guard le o que sobrou antes de gastar em
+                    # regen/judge e cai nos fallbacks deterministicos DENTRO do grafo — em vez de a
+                    # regen lenta estourar o wait_for logo abaixo e o turno morrer por fora, mute e
+                    # com escalada por exaustao (campanha 13/08, cenario desconto_entre_degrau_teto).
+                    turno_deadline_mono=monotonic() + settings.turno_timeout_s,
                 )
                 entrada: dict[str, Any] = {"messages": []}
 
@@ -1281,11 +1286,17 @@ async def escalar_por_exaustao(
     `tipo=outro` + `responsavel="Fernando"` — comportamento identico ao hardcode anterior.
     A metrica `agente_escalada_total` e emitida aqui (camada do agente), nao em `abrir_handoff`.
     """
-    from barra.dominio.escaladas.service import abrir_handoff, mapear_bucket, mapear_motivo
+    from barra.dominio.escaladas.service import (
+        abrir_handoff,
+        fase_do_atendimento,
+        mapear_bucket,
+        mapear_motivo,
+    )
 
     tipo, responsavel = mapear_motivo(motivo)
     descricao = _DESCRICAO_EXAUSTAO.get(motivo, f"encerrou por '{motivo}'")
     async with pool.connection() as conn:
+        fase = await fase_do_atendimento(conn, atendimento_id)
         await abrir_handoff(
             conn,
             atendimento_id=atendimento_id,
@@ -1300,7 +1311,7 @@ async def escalar_por_exaustao(
             autor="sistema",
             observacao=motivo,
         )
-    AGENTE_ESCALADA.labels(mapear_bucket(motivo), motivo).inc()
+    AGENTE_ESCALADA.labels(mapear_bucket(motivo), motivo, fase).inc()
 
 
 async def despachar_humanizacao(

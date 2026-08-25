@@ -280,7 +280,16 @@ class _FakeConnDoPacote:
             payload = [{"conteudo": fala} for fala in self.falas]
         else:
             payload = [
-                {"modelo_id": "m1", "duracao_horas": Decimal("1"), "conversa_id": "c1"},
+                {
+                    "modelo_id": "m1",
+                    "duracao_horas": Decimal("1"),
+                    "conversa_id": "c1",
+                    # Lido pelo `_veredito_do_piso` (ciclo 7): é ele que separa "cadastro incompleto
+                    # no meio de um fechamento" de lowball. Aqui a duração está gravada, então o
+                    # caminho nem chega a olhar — mas a chave tem de existir, senão o fake mente
+                    # sobre o SELECT.
+                    "cotacao_enviada_em": None,
+                },
             ]
 
         class _R:
@@ -716,7 +725,7 @@ class _ConnDoContador:
 async def test_escada_intacta_nao_e_insistencia() -> None:
     """A escalada é o DEPOIS da escada, não o antes: ADR-0031 ("uma terceira insistência não gera
     nova oferta — escala"), degrau 6 do `regras.md.j2` e o `<escada_disponivel>` do próprio turno
-    ("na insistência, escalada com fora_de_oferta")."""
+    ("na insistência num VALOR abaixo desse piso, escalada com fora_de_oferta")."""
     assert await _insistiu_apos_a_escada(_ConnDoContador(0), _ATENDIMENTO) is False  # type: ignore[arg-type]
 
 

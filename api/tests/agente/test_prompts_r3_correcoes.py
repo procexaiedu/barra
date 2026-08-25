@@ -84,9 +84,16 @@ def test_tag_do_pix_nao_e_muda() -> None:
 def test_acao_pendente_isenta_o_que_e_do_sistema() -> None:
     """`<acao_pendente>` devolve a `proxima_acao_esperada` VERBATIM com autoridade de registro do
     sistema ("vem antes de qualquer outro passo") — inclusive quando a ação é do SISTEMA (a chave
-    Pix, o pin do endereço), que ela não tem como executar na bolha."""
+    Pix, o pin do endereço), que ela não tem como executar na bolha. E a isenção é SÓ do que é do
+    sistema (chave Pix + pin no mapa): o endereço/número EM TEXTO é fala dela — em eb01 o
+    boilerplate genérico ("mandar a localização") fez a IA calar "anota o número do ap" 3x."""
     out = _contexto(acao_pendente="enviar a chave Pix ao cliente")
     assert "ação que é do SISTEMA e não sua" in out
+    # do sistema são só a chave e o PIN; endereço/número em texto são fala DELA
+    assert "NÃO são do sistema" in out
+    assert "<local_de_encontro>" in out.split("<acao_pendente>")[1]
+    # a proibição vem com a fala de substituição (incidente #36): cravar o encontro
+    assert "Me confirma o horário que eu te passo o número certinho amor" in out
 
 
 def test_aup_saida_libera_o_anuncio_sem_chave() -> None:

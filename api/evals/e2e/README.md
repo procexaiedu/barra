@@ -58,7 +58,10 @@ multi-turn.
 - `extracao.py` — `extrair_perfis` (por desfecho) e **`extrair_nucleo` (por EIXO DE
   COMPORTAMENTO**: decidido_rapido, objetor, ghost_pos_cotacao, explorador_ambiguo,
   pre_cotacao_sumiu, externo — dedup global, `por_eixo` de cada). Só SELECT, **sem crédito**.
-  A persona embute as falas reais como âncora. Modelo = `MODELO_SINTETICA`.
+  A persona embute as falas reais como âncora. Modelo = `MODELO_SINTETICA` — cadastro com os **3
+  tipos** (interno/externo/remoto) e a linha de **vídeo chamada** (150/15min), igual ao harness
+  terminal (`scripts/eval_corpus/replay_agente_terminal.py`): sem ela o cliente do corpus que pede
+  chamada vira handoff por *cadastro sintético*, não por conduta.
 - `lote.py` — monta o **núcleo de refs por eixo** (`extrair_nucleo`) com porta por item para o
   fan-out de sub-agentes; `--run-tag` pula refs já testadas (dedup via `corpus.eval_e2e`).
 - `cenarios.py` — **catálogo de cenários sintéticos de funcionalidade** (`CenarioFunc`): fluxos

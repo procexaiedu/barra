@@ -16,10 +16,17 @@ em-ou-antes. Eventos derivados (sem captura nova):
   - `estado:<Nome>`       — TRANSICAO: `estado_final["estado"]` muda em relacao ao turno anterior.
   - `pix:solicitado`      — `estado_final["pix_status"]` deixa de ser `nao_solicitado`.
 
-Premissa do baseline: os casos e2e nascem em `Novo`, sem cotacao/tipo/pix (ver
-`evals.e2e.perfil.perfil_para_fixture`). Por isso o estado inicial nao precisa ser semeado: a
-varredura comeca com `vistos` vazio. Um caso seedado no MEIO da conversa (fora desse caminho)
-poderia gerar falso-positivo — fora do escopo do v1.
+ESTADO SEEDADO nao e transicao. A varredura parte de `ResultadoE2E.estado_inicial` (o que o seed
+aplicou; `Novo` no caminho default de `evals.e2e.perfil.perfil_para_fixture`), e nao de `None`:
+obrigacao de estado PRE-EXISTENTE a janela nao e da corrida. Um caso seedado ja em
+`Aguardando_confirmacao` — a cotacao aconteceu ANTES do 1o turno avaliado, ex.: o cenario
+`bloqueio_proprio_nao_recusa` — emitia `estado:Aguardando_confirmacao` no 1o turno e a R1 acusava
+"confirmou sem ter cotado": falso positivo. O `!=` continua cuidando do retorno: sair do estado
+seedado e VOLTAR a ele emite a transicao normalmente (aquela sim aconteceu na corrida) — e e ai que
+a COTACAO seedada (`ResultadoE2E.cotacao_inicial`, de `atendimento.cotacao_enviada`) entra pelo
+mesmo motivo: ela abre a lista de eventos. Sem ela, `remarcacao_aberta_e_volta_atras` (regride para
+`Qualificado` e volta) e `piso_que_andou` (nasce em `Qualificado` ja cotado) reprovavam por R1
+numa corrida em que re-cotar seria justamente o erro (`nao_deve_recotar`).
 
 Ordem DENTRO de um turno: os eventos de extracao saem ANTES dos de transicao, porque os args do
 `registrar_extracao` (cotacao marcada, tipo fixado) sao a CAUSA da transicao que o servidor decide
@@ -40,31 +47,38 @@ if TYPE_CHECKING:
 @dataclass(frozen=True)
 class ReguaOrdem:
     gatilho: str  # evento que dispara a obrigacao, ex.: "estado:Aguardando_confirmacao"
-    requer_antes: str  # evento que tem de ter ocorrido em-ou-antes do gatilho
+    requer_antes: tuple[str, ...]  # QUALQUER um destes tem de ter ocorrido em-ou-antes do gatilho
     desc: str  # descricao curta da invariante (entra na mensagem de falha)
 
 
 # Regras v1. Ambas pegam algo que o SERVIDOR nao bloqueia deterministicamente no caminho da IA:
 #  R1 — a transicao p/ Aguardando_confirmacao e por tipo+horario, NAO pela cotacao (funil-vazamento).
-#  R2 — regression-guard do gate de Pix (ver docstring).
+#  R2 — regression-guard do gate de Pix. Externo antecipa o deslocamento E remoto antecipa o valor
+#       da chamada (ADR 0029) pelo MESMO gate deterministico (`_solicitar_pix_deslocamento_se_
+#       aplicavel`); exigir so `tipo:externo` acusava falso positivo em toda videochamada.
 REGRAS_V1: list[ReguaOrdem] = [
     ReguaOrdem(
         "estado:Aguardando_confirmacao",
-        "cotacao_apresentada",
+        ("cotacao_apresentada",),
         "confirmou sem ter cotado (funil-vazamento)",
     ),
     ReguaOrdem(
         "pix:solicitado",
-        "tipo:externo",
-        "pix solicitado sem tipo_atendimento=externo",
+        ("tipo:externo", "tipo:remoto"),
+        "pix solicitado sem tipo_atendimento externo/remoto",
     ),
 ]
 
 
 def derivar_eventos(res: ResultadoE2E) -> list[str]:
     """Sequencia ordenada de eventos da corrida (ver vocabulario no docstring do modulo)."""
-    eventos: list[str] = []
-    estado_anterior: str | None = None
+    # COTACAO SEEDADA (`atendimento.cotacao_enviada`) abre a lista: o preco ja estava na mesa antes
+    # do 1o turno avaliado, entao a obrigacao "cotar antes de confirmar" ja esta cumprida quando a
+    # janela comeca. Sem isto, todo cenario de remarcacao/retomada — que nasce cotado e tem
+    # `nao_deve_recotar` — acusava "confirmou sem ter cotado" ao voltar a `Aguardando_confirmacao`.
+    eventos: list[str] = ["cotacao_apresentada"] if res.cotacao_inicial else []
+    # Comeca no estado SEEDADO (ver docstring): o 1o turno so emite transicao se SAIR dele.
+    estado_anterior: str | None = res.estado_inicial or None
     pix_solicitado_visto = False
 
     for t in res.turnos:
@@ -116,9 +130,8 @@ def avaliar_sequencia(res: ResultadoE2E, regras: list[ReguaOrdem] = REGRAS_V1) -
     falhas: list[str] = []
     for evento in eventos:
         for regra in regras:
-            if regra.gatilho == evento and regra.requer_antes not in vistos:
-                falhas.append(
-                    f"ordem: {regra.desc} (gatilho={evento!r}, faltou {regra.requer_antes!r})"
-                )
+            if regra.gatilho == evento and not vistos.intersection(regra.requer_antes):
+                faltou = " ou ".join(repr(r) for r in regra.requer_antes)
+                falhas.append(f"ordem: {regra.desc} (gatilho={evento!r}, faltou {faltou})")
         vistos.add(evento)
     return falhas

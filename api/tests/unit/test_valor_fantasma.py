@@ -149,13 +149,21 @@ def test_valor_ilegivel_nao_e_fantasma() -> None:
 class _FakeConn:
     """Responde às três queries de `_valores_ja_ofertados` pelo trecho de SQL."""
 
-    def __init__(self, programas: list[dict[str, Any]], falas: list[str]) -> None:
+    def __init__(
+        self,
+        programas: list[dict[str, Any]],
+        falas: list[str],
+        valor_acordado: Any = None,
+    ) -> None:
         self.programas = programas
         self.falas = falas
+        self.valor_acordado = valor_acordado
 
     async def execute(self, sql: str, params: tuple[Any, ...] = ()) -> Any:
         if "FROM barravips.atendimentos" in sql:
-            linhas = [{"modelo_id": "m1", "conversa_id": "c1"}]
+            linhas = [
+                {"modelo_id": "m1", "conversa_id": "c1", "valor_acordado": self.valor_acordado}
+            ]
         elif "modelo_programas" in sql:
             linhas = self.programas
         else:
@@ -176,9 +184,12 @@ def _linha(preco: Any, minimo: Any = None) -> dict[str, Any]:
 
 
 async def _legitimos(
-    programas: list[dict[str, Any]], falas: list[str], turno: str | None = None
+    programas: list[dict[str, Any]],
+    falas: list[str],
+    turno: str | None = None,
+    valor_acordado: Any = None,
 ) -> set[int]:
-    conn = _FakeConn(programas, falas)
+    conn = _FakeConn(programas, falas, valor_acordado)
     return await _valores_ja_ofertados(conn, "a1", turno)  # type: ignore[arg-type]
 
 
@@ -204,6 +215,86 @@ async def test_modelo_sem_tabela_desliga_o_detector() -> None:
     """Mesma convenção do `bolhas_preco_fantasma`: sem tabela não há "fora da tabela", e descartar
     tudo travaria a venda de um cadastro incompleto."""
     assert await _legitimos([], ["consigo 350 amor"]) == set()
+
+
+# --- o valor JÁ ACORDADO no atendimento (retomada de conversa com desconto) -------------------
+
+
+async def test_valor_ja_acordado_no_atendimento_nao_e_fantasma() -> None:
+    """O bug de 14/08 (corrida `c12cen_v2_20260814`, cenários `remarcacao_para_outro_dia` e
+    `ainda_ta_de_pe`): o atendimento já tinha `valor_acordado=350` gravado — negociado abaixo da
+    tabela de 400/700 —, o cliente voltou dias depois, a extração RE-registrou o mesmo 350 e a
+    guarda o tratava como fantasma (`proposto=350 legitimos=[400, 700]`), porque o conjunto era só
+    tabela + falas da janela, e a janela já não alcançava a fala em que ela ofertou 350.
+
+    Re-registrar o número que o próprio banco guarda não é inventar preço: ele só chegou lá
+    passando por esta guarda, pelo painel da modelo ou pelo backstop do pacote. O irmão
+    `_valores_legitimos` do output_guard já inclui "o valor já na mesa" pelo mesmo motivo."""
+    legitimos = await _legitimos([_linha(400), _linha(700)], [], valor_acordado="350")
+    assert 350 in legitimos
+    assert _valor_fora_do_conjunto("350", legitimos) is None
+
+
+async def test_centavos_do_valor_acordado_nao_criam_fantasma() -> None:
+    """`valor_acordado` é `numeric` — 350,00 no banco é o 350 que a extração re-registra."""
+    legitimos = await _legitimos([_linha(400)], [], valor_acordado="350.00")
+    assert _valor_fora_do_conjunto("350", legitimos) is None
+
+
+async def test_valor_acordado_nao_liga_o_detector_de_uma_modelo_sem_tabela() -> None:
+    """A convenção do desligamento continua sendo a TABELA: sem preço cadastrado o detector fica
+    off inteiro, e não meio-ligado por causa de um valor gravado."""
+    assert await _legitimos([], [], valor_acordado="350") == set()
+
+
+# --- CONTROLE NEGATIVO: o que a correção NÃO pode deixar passar -------------------------------
+
+
+def _guarda_do_fantasma(payload: dict[str, Any], legitimos: set[int]) -> dict[str, Any]:
+    """Espelho das 3 linhas de `registrar_extracao_ia` que aplicam a guarda (com
+    `total_anunciado=False`, que é o caso destes testes). O caminho real, com DB, está em
+    tests/integracao/test_registrar_extracao.py."""
+    fantasma = _valor_fora_do_conjunto(payload["valor_acordado"], legitimos) if legitimos else None
+    if fantasma is None:
+        return payload
+    return _sem_valor_fantasma(payload, fantasma, legitimos)
+
+
+def _payload_do_aceite(valor: str) -> dict[str, Any]:
+    return {
+        "valor_acordado": valor,
+        "duracao_horas": "1",
+        "sinais_qualificacao": {"aceita_valor": True, "informa_local": True},
+        "proxima_acao_esperada": "confirmar o horario",
+    }
+
+
+async def test_valor_que_ninguem_acordou_nem_falou_continua_fantasma() -> None:
+    """O controle negativo da correção: 380 não está na tabela, não saiu da boca dela na janela e
+    não é o `valor_acordado` gravado — segue descartado, e segue derrubando o `aceita_valor` do
+    mesmo payload (o bug de 11/08 que criou a guarda continua fechado)."""
+    legitimos = await _legitimos(
+        [_linha(400), _linha(700)], ["Fica 400 1h amor"], valor_acordado="350"
+    )
+    assert _valor_fora_do_conjunto("380", legitimos) == 380
+
+    limpo = _guarda_do_fantasma(_payload_do_aceite("380"), legitimos)
+    assert "valor_acordado" not in limpo
+    assert limpo["sinais_qualificacao"] == {"informa_local": True}
+    assert limpo["valor_descartado"] == {"proposto": 380, "legitimos": [350, 400, 700]}
+
+
+async def test_aceite_do_turno_sobrevive_quando_o_valor_ja_estava_acordado() -> None:
+    """A consequência que dá nome ao bug. Com `total_anunciado=False`, `_sem_valor_fantasma`
+    derruba o `aceita_valor` do MESMO payload — então o aceite do cliente ("isso, fechado") era
+    perdido por causa de um número que já estava no banco, e a venda voltava para o painel sem
+    aceite. Com o valor acordado no conjunto, a guarda nem chega a rodar: valor e aceite ficam."""
+    legitimos = await _legitimos([_linha(400), _linha(700)], [], valor_acordado="350")
+
+    intacto = _guarda_do_fantasma(_payload_do_aceite("350"), legitimos)
+    assert intacto["valor_acordado"] == "350"
+    assert intacto["sinais_qualificacao"] == {"aceita_valor": True, "informa_local": True}
+    assert "valor_descartado" not in intacto
 
 
 # --- o TOTAL anunciado (programa + Pix): o número cai, o aceite fica --------------------------

@@ -81,9 +81,13 @@ def _runtime(pool: _FakePool) -> _Runtime:
     return _Runtime(ctx)
 
 
-def _valor_defesa(motivo: str) -> float:
+def _valor_defesa(motivo: str, fase: str = "desconhecida") -> float:
+    # `fase` (ciclo 8) e a 3a label da serie: o estado do atendimento na abertura do handoff. O
+    # `_FakeConn` devolve sempre a mesma linha (sem a coluna `estado`), entao `fase_do_atendimento`
+    # cai no fallback `desconhecida` — que e exatamente o contrato: label de metrica nao derruba
+    # escalada. Sem a label no filtro, `get_sample_value` devolveria None e o teste mediria 0.
     valor = REGISTRY.get_sample_value(
-        "agente_escalada_total", {"bucket": "defesa", "motivo": motivo}
+        "agente_escalada_total", {"bucket": "defesa", "motivo": motivo, "fase": fase}
     )
     return valor or 0.0
 

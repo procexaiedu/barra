@@ -8,11 +8,16 @@
 {% elif duracao_fechada %}<duracao nota="pacote escolhido e o valor dele AINDA NÃO foi gravado — se a conversa já tem o preço deste pacote, registre `valor_acordado` agora">{{ duracao_fechada|duracao_de_pacote }}</duracao>
 {% endif %}{% if forma_pagamento %}<forma_pagamento>{{ forma_pagamento }}</forma_pagamento>
 {% endif %}{% if urgencia %}<urgencia>{{ urgencia }}</urgencia>
+{% endif %}{% if deslocamento_por_conta_do_cliente %}<deslocamento_por_conta_do_cliente>sim — está gravado que ELE chama e paga o uber ida e volta. Se ele devolveu a corrida pra ela nesta conversa ("pode chamar você mesma", "me manda o pix do uber"), regrave o campo como false</deslocamento_por_conta_do_cliente>
 {% endif %}{% if fetiches_do_cadastro %}<fetiches_do_cadastro nota="cardápio dela, NÃO é o que já foi registrado — é a lista canônica de nomes para o campo `fetiches_em_pauta`">{{ fetiches_do_cadastro | join(', ') }}</fetiches_do_cadastro>
 {% endif %}<como_ler>
 Isto é estado do sistema, NÃO fala do cliente: nada aqui foi dito por ele nesta conversa agora.
 Registre um campo só se ELE MUDOU nesta conversa. Se o que está acima continua valendo, omita o
 campo — o registro é incremental e o campo omitido preserva o que já está gravado.
+Correção é a mudança que MAIS importa: fala do cliente que NEGA ou desfaz um valor acima ('Não',
+'quem fica no hotel é você?' desfazendo um tipo externo) é exatamente o que se registra — regrave
+o campo com o valor certo, ou use `limpar` quando o certo é vazio. Reenviar um valor daqui de cima
+não registra nada: só reafirma um possível mal-entendido.
 Campo que NÃO aparece aqui em cima está VAZIO no sistema: se a conversa já tem o dado, ele mudou de
 vazio para o valor — registre AGORA, mesmo que tenha sido dito num turno anterior. Omitir só
 preserva o que está escrito acima; num campo ausente, omitir perde o dado.

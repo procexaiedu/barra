@@ -156,6 +156,61 @@ def test_pedido_de_endereco_com_pronome_opcional(fala: str) -> None:
     assert pediu_endereco_no_burst([HumanMessage(content=fala, id="h")])
 
 
+@pytest.mark.parametrize(
+    "fala",
+    [
+        "E o investimento?",
+        "qual o investimento",
+        "investimento?",
+        "e a contribuição amor?",
+        "Quanto?",
+        "E quanto",
+        "quanto",
+    ],
+)
+def test_pedido_de_preco_eufemismo_e_forma_nua(fala: str) -> None:
+    """Campanha 13/08: "E o investimento?" (eufemismo de cachê do nicho) e o "Quanto?" nu ficavam
+    fora do detector — e sem <pergunta_de_preco> sumia a única frase que proíbe o "seria hoje ?"
+    solto (eb02:26311003246742 t3; eb04:187007389155571 t5)."""
+    assert pediu_preco_no_burst([HumanMessage(content=fala, id="h")])
+
+
+@pytest.mark.parametrize(
+    "fala", ["quanto tempo demora", "Maravilha", "fiz um bom investimento na bolsa e quanto rendeu"]
+)
+def test_forma_nua_do_preco_nao_vaza_para_outras_falas(fala: str) -> None:
+    """O ramo nu é ancorado em linha inteira: "quanto" no meio de outra frase segue fora (a
+    terceira fala carrega "investimento", que acende de propósito — o custo do falso positivo é
+    só injetar o bloco de preço; aqui o pino é o ramo nu não casar "e quanto rendeu")."""
+    if "investimento" in fala:
+        assert pediu_preco_no_burst([HumanMessage(content=fala, id="h")])
+    else:
+        assert not pediu_preco_no_burst([HumanMessage(content=fala, id="h")])
+
+
+@pytest.mark.parametrize(
+    "fala",
+    [
+        "Tem local?",
+        "vc tem local",
+        "tem lugar?",
+        "tem onde a gente ir?",
+        "onde a gente pode se encontrar?",
+        "Onde exatamente a gente pode se encontrar?",
+    ],
+)
+def test_pedido_de_endereco_tem_local_e_onde_encontrar(fala: str) -> None:
+    """Campanha 13/08: "Tem local?" e "onde ... encontrar" são as formas mais comuns do corpus de
+    pedir o ponto e ficavam fora — o <local_de_encontro> não renderizava e a resposta virava eco
+    da região sem endereço nem avanço (eb02:91564424585333 t2; eb04:17072595685398 t4)."""
+    assert pediu_endereco_no_burst([HumanMessage(content=fala, id="h")])
+
+
+@pytest.mark.parametrize("fala", ["onde você comprou isso", "tenho local sim amor"])
+def test_tem_local_nao_casa_afirmacao_nem_onde_generico(fala: str) -> None:
+    assert not pediu_endereco_no_burst([HumanMessage(content=fala, id="h")])
+
+
 # --- template ----------------------------------------------------------------------------
 
 

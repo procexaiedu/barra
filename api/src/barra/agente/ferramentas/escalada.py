@@ -17,7 +17,12 @@ from psycopg import AsyncConnection
 from pydantic import BaseModel, ConfigDict, Field
 
 from barra.core.metrics import AGENTE_ESCALADA
-from barra.dominio.escaladas.service import abrir_handoff, mapear_bucket, mapear_motivo
+from barra.dominio.escaladas.service import (
+    abrir_handoff,
+    fase_do_atendimento,
+    mapear_bucket,
+    mapear_motivo,
+)
 
 from ..contexto import ContextAgente
 from ._idempotencia import _executar_idempotente
@@ -81,6 +86,14 @@ _DESC_RESUMO = (
 )
 _DESC_ACAO = "O que o responsável deve decidir ou fazer ao receber a escalada."
 
+# Prefixo do retorno de sucesso da tool — o RASTRO da escalada que sobrevive a qualquer zeramento
+# de AIMessages (os zeramentos de post_process/output_guard reescrevem as AIMessages SEM
+# `tool_calls`, mas nunca tocam nas ToolMessages). post_process (canned de espera) e output_guard
+# (`silencio_modelo`) ancoram nele em vez de depender só do tool_call, que pode já ter sido
+# apagado quando eles rodam (campanha 13/08, eb02:21123135741957 t12: escalada saiu MUDA e o guard
+# ainda regenerou uma fala de venda pós-escalada).
+ESCALADA_ABERTA_PREFIXO = "Escalada aberta para "
+
 
 @tool
 async def escalar(
@@ -96,8 +109,16 @@ async def escalar(
 
     Quando NÃO usar: não escale na 1ª ou 2ª pergunta de disclosure (negue em personagem), num
     pedido de desconto que ainda cabe no seu melhor valor, nem num horário que você conseguiu
-    redirecionar. Escale só quando o cliente insiste além do que suas regras mandam rebater,
-    pede valor abaixo do seu teto de desconto, ou pede algo fora do que você oferece.
+    redirecionar. Nem na pergunta dele sobre a SUA disponibilidade ("até que horas você fica?",
+    "você está sexta?"): isso é dado seu, responde-se pelo <periodo_de_trabalho>/<agenda> — e sem
+    restrição de horário lá, a resposta é a sua disponibilidade ampla. Nem quando ele SUPÕE que
+    você está ocupada agora e pede pra ser o próximo ("assim que você terminar aí"): sem horário
+    pedido não há nada a escalar — ofereça o seu próximo horário livre e feche nele, sem confirmar
+    nem desmentir o compromisso que ele supôs. Nem no pedido de mais TEMPO
+    quando o seu maior pacote já é o máximo do seu cardápio: teto de duração não é motivo de
+    escalada — recuse curto o que não existe, mantenha o maior pacote de pé e feche na mesma
+    mensagem. Escale só quando o cliente insiste além do que suas regras mandam rebater, pede
+    valor abaixo do seu teto de desconto, ou pede algo fora do que você oferece.
 
     No preço a escalada é o ÚLTIMO degrau, nunca o primeiro: recuse em personagem, ofereça o
     cartão e só então escale, se ele mantiver o número abaixo do seu teto de desconto.
@@ -154,7 +175,7 @@ async def escalar(
             )
 
     return (
-        f"Escalada aberta para {resultado['responsavel']}. Próxima fala virá quando "
+        f"{ESCALADA_ABERTA_PREFIXO}{resultado['responsavel']}. Próxima fala virá quando "
         "devolverem para você — não escreva mais texto neste turno."
     )
 
@@ -174,6 +195,9 @@ async def _executar_handoff(
     """
     motivo: str = payload["motivo"]
     tipo, responsavel = mapear_motivo(motivo)
+    # `fase` ANTES do handoff: e o estado em que a conversa estava quando a IA decidiu escalar —
+    # escalada em `Novo`/`Triagem` e a assinatura do handoff indevido (ver a docstring da metrica).
+    fase = await fase_do_atendimento(conn, UUID(atendimento_id))
     escalada_id = await abrir_handoff(
         conn,
         atendimento_id=UUID(atendimento_id),
@@ -207,7 +231,7 @@ async def _executar_handoff(
         }
     # Metrica na camada do agente (NAO em abrir_handoff, compartilhada). Dentro do executor
     # idempotente: um replay do turno (mesma chave) nao reexecuta e nao re-conta.
-    AGENTE_ESCALADA.labels(mapear_bucket(motivo), motivo).inc()
+    AGENTE_ESCALADA.labels(mapear_bucket(motivo), motivo, fase).inc()
     return {
         "escalada_id": str(escalada_id),
         "responsavel": responsavel,

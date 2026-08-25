@@ -47,7 +47,9 @@ async def garantir_modelo_sandbox(conn: AsyncConnection[dict[str, Any]]) -> None
                 "e2e-sandbox",
                 500,
                 # a sandbox aceita os 3 tipos para que os cenarios sinteticos (interno/externo/
-                # remoto) persistam sob ela sem precisar de uma modelo por tipo.
+                # remoto) persistam sob ela sem precisar de uma modelo por tipo. Mesma lista de
+                # MODELO_SINTETICA["tipo_atendimento_aceito"] hoje; fica literal porque a sandbox
+                # e o teto de tipos da corrida persistente, nao um espelho do placeholder.
                 ["interno", "externo", "remoto"],
                 MODELO_SINTETICA["localizacao_operacional"],
                 MODELO_SINTETICA["endereco_formatado"],

@@ -24,10 +24,24 @@ mod = importlib.import_module("barra.agente.nos.intercept_disclosure")
 mod_defesa = importlib.import_module("barra.agente._defesa")
 
 
+class _DummyResult:
+    async def fetchone(self) -> dict[str, Any] | None:
+        return None
+
+
+class _DummyConn:
+    """Conn dublada: o `abrir_handoff` esta espiado, mas `escalar_defesa` ainda le a `fase` do
+    atendimento (label da metrica de escalada). Linha ausente -> fase `desconhecida`, que e
+    exatamente o contrato: label de metrica nao derruba handoff."""
+
+    async def execute(self, *args: Any, **kwargs: Any) -> _DummyResult:
+        return _DummyResult()
+
+
 class _DummyPool:
     @asynccontextmanager
     async def connection(self) -> AsyncIterator[object]:
-        yield object()
+        yield _DummyConn()
 
 
 def _ctx(redis: FakeRedis, cliente_id: str, turno_id: str) -> ContextAgente:

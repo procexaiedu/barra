@@ -17,13 +17,16 @@ o caller. Este modulo so prepara o cenario, executa um turno e coleta o resultad
 from __future__ import annotations
 
 import asyncio
+import re
+from collections import Counter
 from collections.abc import AsyncIterator
 from contextlib import AbstractContextManager, asynccontextmanager, nullcontext
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import UTC, date, datetime, time, timedelta
 from time import perf_counter
 from typing import Any
 from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo
 
 from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import BaseMessage
@@ -200,6 +203,9 @@ class ResultadoTurno:
     """O que um turno do grafo produziu — insumo puro dos graders de `checks.py`."""
 
     texto: str  # texto agregado ao cliente (mesmo `extrair_texto_do_turno` do output_guard)
+    # Tools do turno, PARALELOS entre si (`zip(strict=True)` e invariante para quem le args por
+    # nome). Rastro das AIMessages MESCLADO com `barravips.tool_calls` — ver `_mesclar_tools`: so
+    # o banco sobrevive a regeneracao do output_guard, e so as mensagens tem as tools de leitura.
     tool_calls: list[str]  # nomes das tools chamadas no turno
     tool_args: list[dict[str, Any]]  # args das tools (alvo do scan de canary)
     nodes: list[str]  # nos visitados (trajetoria)
@@ -211,6 +217,13 @@ class ResultadoTurno:
     estado_grafo: dict[str, Any] = field(
         default_factory=dict
     )  # carimbos (ver `carimbos_do_estado`)
+    # `escaladas.observacao` da escalada que ESTE turno abriu, ou None. E o unico rastro das
+    # escaladas que o COORDENADOR abre FORA do grafo (`escalar_por_exaustao`: modelo_indisponivel,
+    # timeout_grafo, teto_turnos, ...): elas nao passam por tool nem tocam `messages`, entao a
+    # regua de silencio as lia como "pausa externa" e cobrava a infra como conduta. So o caminho
+    # fiel preenche (ver `harness_fiel.rodar_turno_auditado`); no `rodar_turno` cru nao ha
+    # coordenador para abri-las.
+    escalada_do_turno: str | None = None
 
     @property
     def extracao(self) -> dict[str, Any] | None:
@@ -219,7 +232,8 @@ class ResultadoTurno:
         Delega ao MESMO `extracao_do_turno` que o trace de prod usa: carimbo do State primeiro,
         varredura de `tool_calls` so na ausencia dele (State montado a mao, turno que nao passou
         pelo `extrair`). Todo consumidor do rig que quer "o que o turno leu" le AQUI, e nao
-        `tool_calls`/`tool_args` — esses sao o rastro da CHAMADA, e o guard os apaga.
+        `tool_calls`/`tool_args` — esses sao o rastro da CHAMADA (mesclado com o banco desde o
+        fix do book, mas ainda a chamada, nao o payload que a extracao gravou no State).
         """
         from barra.agente._texto_turno import extracao_do_turno
 
@@ -260,12 +274,89 @@ def _metricas_tokens(mensagens: list[BaseMessage], cotacao_usd_brl: float) -> Me
 
 
 def _coletar_tools(mensagens: list[BaseMessage]) -> tuple[list[str], list[dict[str, Any]]]:
+    """Rastro de tool das AIMessages — a INTENCAO que o LLM emitiu no turno.
+
+    ⚠️ Nao e a verdade do que EXECUTOU. Quando o output_guard zera o turno e regenera, o
+    `_zerar_turno` clona as AIMessages SEM `tool_calls` de proposito (a regeneracao nao pode
+    reexecutar efeito colateral) — o rastro some das mensagens embora a tool tenha rodado. Quem
+    quer "o que o turno FEZ" mescla com `_tools_do_banco` (ver `_mesclar_tools`); esta funcao
+    sozinha so cobre as tools que nao gravam em `barravips.tool_calls` (as de leitura).
+    """
     nomes: list[str] = []
     args: list[dict[str, Any]] = []
     for m in mensagens:
         for tc in getattr(m, "tool_calls", None) or []:
             nomes.append(str(tc.get("name")))
             args.append(dict(tc.get("args") or {}))
+    return nomes, args
+
+
+async def _tools_do_banco(
+    conn: AsyncConnection[dict[str, Any]], turno_ids: list[str]
+) -> tuple[list[str], list[dict[str, Any]]]:
+    """Tools de ESCRITA que o turno realmente executou, de `barravips.tool_calls`.
+
+    Fonte de verdade do efeito colateral (`ferramentas/_idempotencia`): a linha so existe se o
+    executor rodou, e o guard NAO a apaga ao regenerar — e por isso que o proprio output_guard le
+    dali (`output_guard.py`, legenda do book) em vez de olhar as AIMessages.
+
+    A ToolMessage tambem sobrevive ao `_zerar_turno` e e o que `e2e.avaliacao._tool_ok_no_turno`
+    usa para a pergunta "rodou?"; aqui a fonte e o banco porque as reguas do book precisam dos
+    ARGS (tipo/legenda de cada `enviar_midia`), que a ToolMessage nao carrega.
+
+    Le na MESMA conexao/transacao do turno, antes do ROLLBACK do caller: nada aqui commita, e as
+    linhas foram gravadas por savepoint na mesma conn (o pool do rig e de UMA conexao).
+    `turno_ids` no plural porque o drain do coordenador pode rodar o grafo mais de uma vez sob o
+    mesmo lock — o turno auditado e a soma das invocacoes (ver `harness_fiel.GraphAuditado`).
+    """
+    if not turno_ids:
+        return [], []
+    res = await conn.execute(
+        """
+        SELECT tool_name, payload
+          FROM barravips.tool_calls
+         WHERE turno_id = ANY(%s::uuid[])
+         ORDER BY created_at, tool_name, call_idx
+        """,
+        (turno_ids,),
+    )
+    linhas = await res.fetchall()
+    return [str(r["tool_name"]) for r in linhas], [dict(r["payload"] or {}) for r in linhas]
+
+
+def _mesclar_tools(
+    das_mensagens: tuple[list[str], list[dict[str, Any]]],
+    do_banco: tuple[list[str], list[dict[str, Any]]],
+) -> tuple[list[str], list[dict[str, Any]]]:
+    """Une os dois rastros POR NOME DE TOOL, ficando com o lado que tem MAIS chamadas.
+
+    Nenhum dos dois lados e superconjunto do outro:
+    - tool de leitura nunca grava em `tool_calls` -> so as mensagens a tem;
+    - turno regenerado pelo guard perde o rastro nas mensagens -> so o banco o tem.
+
+    Contagem por nome (nao uniao de conjuntos) porque as reguas do book contam repeticoes
+    (`enviar_midia` >= 2 = book; 1 = conta-gotas). Preferir o MAIOR lado nunca inventa chamada:
+    o banco so tem linha de tool executada, e a mensagem so tem tool que o LLM pediu. Os `args`
+    acompanham o lado escolhido para `tool_calls`/`tool_args` seguirem PARALELOS — invariante que
+    `e2e.massa._midias_do_turno` consome com `zip(..., strict=True)`.
+    """
+    nomes_msg, args_msg = das_mensagens
+    nomes_db, args_db = do_banco
+    if not nomes_db:
+        return list(nomes_msg), list(args_msg)
+    c_msg, c_db = Counter(nomes_msg), Counter(nomes_db)
+    # Empate -> lado das mensagens (preserva a ordem em que o LLM pediu, e os args crus da chamada).
+    manda_o_banco = {nome for nome, n in c_db.items() if n > c_msg[nome]}
+    nomes: list[str] = []
+    args: list[dict[str, Any]] = []
+    for nome, arg in zip(nomes_msg, args_msg, strict=True):
+        if nome not in manda_o_banco:
+            nomes.append(nome)
+            args.append(arg)
+    for nome, arg in zip(nomes_db, args_db, strict=True):
+        if nome in manda_o_banco:
+            nomes.append(nome)
+            args.append(arg)
     return nomes, args
 
 
@@ -296,6 +387,105 @@ class Cenario:
     modelo_b_id: UUID | None = None
     canary: str | None = None  # token do par B que NAO pode aparecer em A
     programas: list[dict[str, Any]] = field(default_factory=list)
+    # Bloqueios semeados (`cenario["bloqueios"]`), na ordem da fixture. Vazio = agenda livre (o
+    # default de todos os cenarios anteriores).
+    bloqueios: list[UUID] = field(default_factory=list)
+    # Relogio injetado no seed. Guardado no Cenario porque quem AVALIA a corrida precisa da MESMA
+    # ancora para recomputar a hora esperada (`proximo_livre`/`janelas_livres`) — sem ela o check
+    # so pode hardcodar hora, que apodrece calado quando um setting de agenda muda.
+    agora: datetime | None = None
+
+
+# --- relogio do cenario: formas relativas ancoradas no `agora` injetado ----------------------
+
+# Mesmo fuso da agenda (`prepare_context._FUSO_BR`, `dominio/agenda`): "hoje 21:00" na fixture tem
+# de ser as 21:00 que o prompt renderiza e que o `criar_bloqueio_previo` valida. Resolver em UTC
+# deslocaria o cenario em 3h e mudaria ate o DIA nas bordas (21:00 BRT = 00:00 UTC do dia seguinte).
+_FUSO_BR = ZoneInfo("America/Sao_Paulo")
+
+# "hoje 21:00" | "amanha 00:30" | "21:00" (= hoje). Sem segundos de proposito: o cenario fala a
+# lingua da agenda (a IA oferta em hora cheia/meia).
+_RELATIVO_HORA = re.compile(
+    r"^\s*(ontem|hoje|amanha|amanhã|depois de amanha|depois de amanhã)?\s*(\d{1,2}):(\d{2})\s*$",
+    re.IGNORECASE,
+)
+_DIAS_RELATIVOS = {
+    "ontem": -1,
+    "hoje": 0,
+    "amanha": 1,
+    "amanhã": 1,
+    "depois de amanha": 2,
+    "depois de amanhã": 2,
+}
+
+
+def _base_do_relogio(agora: datetime | None) -> datetime:
+    """O instante-ancora do cenario, aware. `None` = relogio de parede (o mesmo default de `seedar`
+    e do turno); naive vira UTC pela MESMA convencao do `prepare_context` (`agora_utc.tzinfo` ausente
+    -> UTC), senao a fixture e o prompt discordariam do fuso em silencio."""
+    base = agora if agora is not None else datetime.now(UTC)
+    return base if base.tzinfo else base.replace(tzinfo=UTC)
+
+
+def instante_do_cenario(valor: Any, agora: datetime | None) -> datetime:
+    """Resolve uma marca de tempo da fixture num instante aware, ancorada no relogio INJETADO.
+
+    Formas aceitas (todas relativas a `agora`, exceto o `datetime` absoluto):
+
+    - `"hoje 21:00"` / `"amanha 00:30"` / `"21:00"` — hora do dia no fuso da agenda (BRT);
+    - `timedelta(hours=2)` — offset a partir de `agora` (a forma que a matriz de cenarios escreve:
+      "bloqueio +2h -> +3h");
+    - `int`/`float` — o mesmo offset, em MINUTOS (`-30` = bloqueio ja em curso);
+    - `datetime` — absoluto (naive -> UTC);
+    - ISO 8601 (`"2026-08-13T21:00:00-03:00"`) — escape para o caso raro que precisa de data fixa.
+
+    Publica de proposito: os checks que recomputam a hora esperada (`proximo_livre`,
+    `janelas_livres`) precisam resolver a MESMA marca com a MESMA ancora — numero magico no check
+    apodrece calado quando o `agenda_buffer_min` muda.
+    """
+    base = _base_do_relogio(agora)
+    if isinstance(valor, datetime):
+        return valor if valor.tzinfo else valor.replace(tzinfo=UTC)
+    if isinstance(valor, timedelta):
+        return base + valor
+    if isinstance(valor, bool):  # bool e int: barrar antes do ramo numerico
+        raise TypeError(f"marca de tempo invalida no cenario: {valor!r}")
+    if isinstance(valor, int | float):
+        return base + timedelta(minutes=float(valor))
+    if isinstance(valor, str):
+        m = _RELATIVO_HORA.match(valor)
+        if m is not None:
+            dia = (m.group(1) or "hoje").lower()
+            local = base.astimezone(_FUSO_BR)
+            alvo = local.date() + timedelta(days=_DIAS_RELATIVOS[dia])
+            return datetime.combine(alvo, time(int(m.group(2)), int(m.group(3))), tzinfo=_FUSO_BR)
+        try:
+            iso = datetime.fromisoformat(valor)
+        except ValueError as exc:
+            raise ValueError(f"marca de tempo invalida no cenario: {valor!r}") from exc
+        return iso if iso.tzinfo else iso.replace(tzinfo=UTC)
+    raise TypeError(f"marca de tempo invalida no cenario: {valor!r}")
+
+
+def data_do_cenario(valor: Any, agora: datetime | None) -> date | None:
+    """Idem para uma DATA de calendario (`atendimentos.data_desejada`): `date`, "hoje"/"amanha"/
+    "ontem" ou ISO. `None` passa reto (campo ausente da fixture = coluna NULL, como sempre foi).
+
+    O dia sai do `agora` visto em BRT — em UTC, um cenario ancorado as 22:00 BRT gravaria "amanha"
+    como data desejada de HOJE."""
+    if valor is None:
+        return None
+    if isinstance(valor, datetime):
+        return valor.astimezone(_FUSO_BR).date()
+    if isinstance(valor, date):
+        return valor
+    if isinstance(valor, str):
+        chave = valor.strip().lower()
+        if chave in _DIAS_RELATIVOS:
+            local = _base_do_relogio(agora).astimezone(_FUSO_BR)
+            return local.date() + timedelta(days=_DIAS_RELATIVOS[chave])
+        return date.fromisoformat(valor)
+    raise TypeError(f"data invalida no cenario: {valor!r}")
 
 
 async def _seed_modelo(conn: AsyncConnection[dict[str, Any]], spec: dict[str, Any]) -> UUID:
@@ -344,7 +534,74 @@ async def _seed_modelo(conn: AsyncConnection[dict[str, Any]], spec: dict[str, An
             (uuid4(), modelo_id, regra["dia_semana"], regra["hora_inicio"], regra["hora_fim"]),
         )
     await _seed_midias(conn, modelo_id)
+    # Parceria (ADR de 12/08) — opcional; sem a chave `carregar_parceria` devolve None e
+    # `envolver_parceira` levanta `_ERRO_SEM_PARCEIRA`, que e o estado de quase todo o cadastro e
+    # o comportamento de todos os casos anteriores a esta chave.
+    if spec.get("parceria"):
+        await _seed_parceria(conn, modelo_id, spec["parceria"])
     return modelo_id
+
+
+async def _seed_parceria(
+    conn: AsyncConnection[dict[str, Any]], modelo_id: UUID, spec: dict[str, Any]
+) -> UUID:
+    """Cria a modelo-PARCEIRA e o vinculo ativo. Devolve o id da parceira.
+
+    A parceira e uma `modelos` de verdade (o `carregar_parceria` faz JOIN e devolve None se o
+    `nome` nao vier), mas sem programas/midia: o que o agente pode fazer com ela e so o que os
+    dois modos autorizam — em `dupla` ele cota pela tabela DELA-QUE-CONDUZ, em `encaminhar` ele
+    para de cotar. Cadastro proprio aqui so criaria a tentacao de vazar dado dela.
+
+    `numero_whatsapp` NAO usa o sentinela `test-wpp-*` das outras modelos: precisa ser E.164 de
+    verdade. A bolha do contato e deterministica (`_parceria.formatar_bolha_contato_parceira`,
+    anexada pelo coordenador) e o carve-out que a salva da rede anti-Pix do output_guard faz
+    `fullmatch` de "contato da <nome>: +<12-14 digitos>". Com o sentinela a bolha nao se forma e o
+    encaminhamento passaria verde sem NUNCA exercitar a entrega do contato — o buraco que estes
+    cenarios existem para fechar. `+5519900000xxx` e o bloco 9-seguido-de-zeros, nao atribuivel
+    pela Anatel: E.164 valido em forma, inexistente em fato.
+
+    O sufixo e SORTEADO porque `modelos_numero_whatsapp_key` e UNIQUE e cada cenario com parceria
+    seeda a sua Yasmin na mesma transacao efemera — um literal fixo colide no segundo cenario. Por
+    isso tambem o grader do vazamento (`_ia_escreveu_um_telefone`) nao recebe o literal: ele
+    procura QUALQUER E.164 fora da bolha canonica, o que alem de nao acoplar ao seed ainda pega o
+    caso pior, o telefone INVENTADO.
+    """
+    parceira_id = uuid4()
+    await conn.execute(
+        """
+        INSERT INTO barravips.modelos
+            (id, nome, idade, numero_whatsapp, valor_padrao, tipo_atendimento_aceito)
+        VALUES (%s, %s, %s, %s, %s, %s::barravips.tipo_atendimento_enum[])
+        """,
+        (
+            parceira_id,
+            spec.get("nome", "Yasmin"),
+            spec.get("idade", 24),
+            # +55 19 9 0000XXXX = 13 digitos, dentro do `\+\d{12,14}` que a bolha canonica exige.
+            spec.get("numero_whatsapp") or f"+551990000{parceira_id.int % 10_000:04d}",
+            spec.get("valor_padrao", 500),
+            # NOT NULL na tabela. O valor nao e lido por caminho nenhum da parceira
+            # (`carregar_parceria` traz so nome/idade/flags do par), entao o default largo aqui
+            # e o que MENOS mente: a parceira nao tem cadastro proprio exercitado no rig.
+            spec.get("tipo_atendimento_aceito") or ["interno", "externo"],
+        ),
+    )
+    await conn.execute(
+        """
+        INSERT INTO barravips.modelo_parcerias
+            (id, modelo_id, parceira_id, encaminhamento_ativo, encaminhamento_atos, dupla_ativa)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        """,
+        (
+            uuid4(),
+            modelo_id,
+            parceira_id,
+            bool(spec.get("encaminhamento_ativo", False)),
+            list(spec.get("encaminhamento_atos") or []),
+            bool(spec.get("dupla_ativa", False)),
+        ),
+    )
+    return parceira_id
 
 
 # Tags do enviar_midia (ferramentas/midia.py: TagMidia). Cobertas TODAS, foto e video, p/ que
@@ -504,21 +761,47 @@ async def _seed_atendimento(
     conversa_id: UUID,
     numero_curto: int,
     atendimento: dict[str, Any],
+    agora: datetime | None = None,
 ) -> UUID:
-    """Seed parametrizado por `atendimento` (estado/tipo/pix/ia_pausada da fixture)."""
+    """Seed parametrizado por `atendimento` (estado/tipo/pix/ia_pausada da fixture).
+
+    Os campos de AGENDA do atendimento (`data_desejada`, `horario_desejado`, `duracao_horas`,
+    `urgencia`, `valor_acordado`, `horario_evidenciado`, `aviso_saida_em`) sao opcionais e nascem
+    NULL/false — o default reproduz exatamente o atendimento "cru" que todos os cenarios ja
+    seedavam. Eles existem para os cenarios que nascem DEPOIS do fechamento (`Aguardando_confirmacao`
+    com hora combinada): a remarcacao le os tres juntos (`_reagendamento_pos_bloqueio` e
+    `_modelo_ainda_nao_acionada`, dominio/atendimentos/service) e o `<situacao_do_atendimento>`
+    renderiza data+hora. O `bloqueio_id` NAO entra aqui: quem o preenche e o proprio bloqueio
+    proprio da fixture (`bloqueios: [{... "atendimento": true}]`, ver `_seed_bloqueio`), que so pode
+    nascer depois desta linha existir (FK circular).
+
+    `data_desejada` aceita `date`, "hoje"/"amanha"/"ontem" ou ISO; `aviso_saida_em` aceita `True`
+    (= o proprio `agora`) ou qualquer forma de `instante_do_cenario` — as duas ancoradas no relogio
+    injetado, nunca no relogio de parede (senao "hoje 21:00" muda de sentido a cada corrida).
+    """
     atendimento_id = uuid4()
     estado = atendimento.get("estado", "Triagem")
     ia_pausada = bool(atendimento.get("ia_pausada", False))
+    aviso = atendimento.get("aviso_saida_em")
+    aviso_saida_em: datetime | None = None
+    if aviso is True:
+        aviso_saida_em = agora or datetime.now(UTC)
+    elif aviso is not None and aviso is not False:  # `is`: `0 == False` engoliria o offset zero
+        aviso_saida_em = instante_do_cenario(aviso, agora)
     await conn.execute(
         """
         INSERT INTO barravips.atendimentos
             (id, numero_curto, cliente_id, modelo_id, conversa_id, estado,
-             tipo_atendimento, pix_status, ia_pausada, ia_pausada_motivo, cotacao_enviada_em)
+             tipo_atendimento, pix_status, ia_pausada, ia_pausada_motivo, cotacao_enviada_em,
+             data_desejada, horario_desejado, duracao_horas, urgencia, valor_acordado,
+             horario_evidenciado, aviso_saida_em)
         VALUES (%s, %s, %s, %s, %s, %s::barravips.estado_atendimento_enum,
                 %s::barravips.tipo_atendimento_enum,
                 %s::barravips.pix_status_enum, %s,
                 %s::barravips.ia_pausada_motivo_enum,
-                CASE WHEN %s THEN now() ELSE NULL END)
+                CASE WHEN %s THEN now() ELSE NULL END,
+                %s::date, %s::time, %s::numeric, %s::barravips.urgencia_enum, %s::numeric,
+                %s, %s::timestamptz)
         """,
         (
             atendimento_id,
@@ -532,9 +815,95 @@ async def _seed_atendimento(
             ia_pausada,
             atendimento.get("ia_pausada_motivo") if ia_pausada else None,
             bool(atendimento.get("cotacao_enviada", False)),
+            data_do_cenario(atendimento.get("data_desejada"), agora),
+            atendimento.get("horario_desejado"),
+            atendimento.get("duracao_horas"),
+            atendimento.get("urgencia"),
+            atendimento.get("valor_acordado"),
+            bool(atendimento.get("horario_evidenciado", False)),
+            aviso_saida_em,
         ),
     )
     return atendimento_id
+
+
+async def _seed_bloqueio(
+    conn: AsyncConnection[dict[str, Any]],
+    *,
+    modelo_id: UUID,
+    atendimento_id: UUID | None,
+    spec: dict[str, Any],
+    agora: datetime | None = None,
+) -> UUID:
+    """Insere UM bloqueio da agenda da modelo (a "agenda ocupada" que o cenario declara).
+
+    `spec` = {inicio, fim | duracao_min, estado?, origem?, observacao?, atendimento?}:
+
+    - `inicio`/`fim`: qualquer forma de `instante_do_cenario` — "hoje 21:00"/"amanha 00:30"
+      (BRT), `timedelta(hours=2)` ou minutos (int), sempre relativos ao `agora` INJETADO. Nenhum
+      cenario deve escrever hora absoluta: o `agora` do cenario e a unica ancora.
+    - `duracao_min` (default 60) so vale quando `fim` esta ausente.
+    - `tipo_atendimento` (interno | externo | remoto; default None) declara ONDE o compromisso
+      acontece — e o que faz um bloqueio `externo` (ela na casa de um cliente) cobrar
+      `agenda_buffer_externo_min` de gap dos dois lados em vez do `agenda_buffer_min` (emenda ADR
+      0025, 2026-08-14). None = desconhecido: o gap padrao, o comportamento de todos os cenarios
+      escritos antes desta emenda. Num bloqueio com `atendimento: true` o tipo do ATENDIMENTO ja
+      basta (o dominio deriva por COALESCE); este campo e para o bloqueio AVULSO, que e justamente
+      o "ela sai de um servico na casa de outro cliente".
+    - `estado` default 'bloqueado' e `origem` default 'manual' — o bloqueio ATIVO e opaco, que e o
+      que a agenda ve (`prepare_context` recorta por `fim > agora` e estado ativo). 'cancelado'/
+      'concluido' servem para provar o oposto (nao conflitam, pelo EXCLUDE parcial da tabela).
+    - `atendimento: true` amarra o bloqueio ao atendimento do proprio cenario E faz o back-link
+      (`atendimentos.bloqueio_id`) — e o "bloqueio proprio", que o `prepare_context` esconde de
+      proposito da lista de ocupacao (ela nao pode recusar a propria reserva).
+
+    `id` fica com o DEFAULT `barravips.uuidv7()` da tabela (como prod) e volta por RETURNING para o
+    back-link. `created_at`/`updated_at` seguem o relogio injetado pelo mesmo motivo do
+    `_inserir_mensagem`: uma linha nascida no `now()` do banco enquanto o turno acontece no relogio
+    fixo desloca qualquer leitura por idade do registro.
+
+    Sobreposicao entre dois bloqueios ATIVOS estoura o EXCLUDE `bloqueios_sem_sobreposicao` — e o
+    banco dizendo que o cenario e impossivel (a modelo nao pode estar em dois lugares), nao um bug
+    do seed.
+    """
+    inicio = instante_do_cenario(spec["inicio"], agora)
+    if spec.get("fim") is not None:
+        fim = instante_do_cenario(spec["fim"], agora)
+    else:
+        fim = inicio + timedelta(minutes=int(spec.get("duracao_min", 60)))
+    do_atendimento = bool(spec.get("atendimento", False))
+    res = await conn.execute(
+        """
+        INSERT INTO barravips.bloqueios
+            (modelo_id, atendimento_id, inicio, fim, estado, origem, observacao,
+             tipo_atendimento, created_at, updated_at)
+        VALUES (%s, %s, %s, %s, %s::barravips.estado_bloqueio_enum,
+                %s::barravips.origem_bloqueio_enum, %s,
+                %s::barravips.tipo_atendimento_enum,
+                COALESCE(%s::timestamptz, now()), COALESCE(%s::timestamptz, now()))
+        RETURNING id
+        """,
+        (
+            modelo_id,
+            atendimento_id if do_atendimento else None,
+            inicio,
+            fim,
+            spec.get("estado", "bloqueado"),
+            spec.get("origem", "manual"),
+            spec.get("observacao"),
+            spec.get("tipo_atendimento"),
+            agora,
+            agora,
+        ),
+    )
+    linha = await res.fetchone() or {}
+    bloqueio_id = UUID(str(linha["id"]))
+    if do_atendimento and atendimento_id is not None:
+        await conn.execute(
+            "UPDATE barravips.atendimentos SET bloqueio_id = %s WHERE id = %s",
+            (bloqueio_id, atendimento_id),
+        )
+    return bloqueio_id
 
 
 async def _inserir_mensagem(
@@ -590,9 +959,19 @@ async def seedar(
 ) -> Cenario:
     """Seed completo de uma fixture: par A (sempre) + par B opcional (isolamento) + historico.
 
-    `fixture["cenario"]` = {modelo, atendimento, recorrente?, observacoes_internas?, par_b?, canary?}.
-    `fixture["historico"]` = [{direcao, texto}] inserido antes do turno (mensagens passadas).
-    `fixture["turno_cliente"]` e inserido por `rodar_turno`, nao aqui.
+    `fixture["cenario"]` = {modelo, atendimento, bloqueios?, recorrente?, observacoes_internas?,
+    par_b?, canary?}. `fixture["historico"]` = [{direcao, texto}] inserido antes do turno (mensagens
+    passadas). `fixture["turno_cliente"]` e inserido por `rodar_turno`, nao aqui.
+
+    `cenario["bloqueios"]` (opcional; ausente = agenda VAZIA, o default de todos os cenarios
+    anteriores) e a AGENDA OCUPADA do cenario — `[{inicio, fim|duracao_min, estado?, origem?,
+    observacao?, atendimento?}]`, com as horas ancoradas em `agora` (ver `_seed_bloqueio` e
+    `instante_do_cenario`). Exemplo do cenario "hora pedida ocupada":
+
+        {"cenario": {"modelo": {...},
+                     "atendimento": {"estado": "Novo"},
+                     "bloqueios": [{"inicio": timedelta(hours=2), "duracao_min": 60}]},
+         "historico": []}
 
     `agora` = o MESMO relogio injetado que o caller vai passar ao turno (`rodar_turno_fiel(agora=)`
     / `rodar_turno(agora_utc=)`). Sem ele o historico nasce no `now()` do banco enquanto o turno
@@ -618,7 +997,16 @@ async def seedar(
         conversa_id=conversa_id,
         numero_curto=1,
         atendimento=cen.get("atendimento", {}),
+        agora=agora,
     )
+    # Depois do atendimento: o bloqueio PROPRIO ({"atendimento": true}) referencia a linha dele e
+    # ainda escreve o back-link `atendimentos.bloqueio_id`.
+    bloqueios = [
+        await _seed_bloqueio(
+            conn, modelo_id=modelo_id, atendimento_id=atendimento_id, spec=spec, agora=agora
+        )
+        for spec in cen.get("bloqueios") or []
+    ]
 
     modelo_b_id: UUID | None = None
     par_b = cen.get("par_b")
@@ -640,6 +1028,7 @@ async def seedar(
             conversa_id=conversa_b,
             numero_curto=1,
             atendimento=par_b.get("atendimento", {"estado": "Triagem"}),
+            agora=agora,
         )
         # Mensagens do par B portando o canary: a janela de mensagens (WHERE cliente_id AND
         # modelo_id) e o canal PRINCIPAL de isolamento. Se a query furar (so cliente_id), estas
@@ -670,6 +1059,8 @@ async def seedar(
         modelo_b_id=modelo_b_id,
         canary=cen.get("canary"),
         programas=cen.get("modelo", {}).get("programas", []),
+        bloqueios=bloqueios,
+        agora=agora,
     )
 
 
@@ -769,7 +1160,11 @@ async def rodar_turno(
     latencia = perf_counter() - t0
 
     mensagens: list[BaseMessage] = estado["messages"]
-    nomes, args = _coletar_tools(mensagens)
+    # O rastro de tool das mensagens nao sobrevive a regeneracao do output_guard; o de
+    # `barravips.tool_calls` sim. Leitura na mesma conn, antes do ROLLBACK do caller.
+    nomes, args = _mesclar_tools(
+        _coletar_tools(mensagens), await _tools_do_banco(conn, [ctx.turno_id])
+    )
     metricas = _metricas_tokens(mensagens, get_settings().usd_brl_cotacao)
     metricas.latencia_s = latencia
     return ResultadoTurno(

@@ -220,9 +220,18 @@ _DESC_DATA = (
     "então registrar o dia certo é o que evita o slot cair no dia errado. Recuo do cliente ('não "
     "sei o dia ainda') usa o campo `limpar`, não este."
 )
+# Campanha 13/08 (eb04:187007389155571): a extração gravou `valor_acordado: 2500` +
+# `duracao_horas: 12` a partir de "qual período mais longo? e quanto?" — uma PERGUNTA — e o par
+# envenenado virou a mesa da negociação (piso de 1875 matou a contraproposta legítima de 600 na
+# linha de 2h/700). As duas descrições abaixo ganharam a negação ativa: pergunta não move a mesa.
 _DESC_VALOR = (
     "Valor do SERVIÇO/programa fechado com o cliente — a base que o sistema confere contra o "
-    "teto de desconto. SEMPRE grave JUNTO com duracao_horas (a duração do programa cotado) — "
+    "teto de desconto. PERGUNTA não fecha mesa nenhuma: ele perguntando o preço de um pacote "
+    "('e quanto é o de 12h?', 'qual seu período mais longo? e quanto?') NÃO é aceite, e a SUA "
+    "resposta cotando esse pacote também não — nesse turno o campo fica de FORA (gravar o preço "
+    "perguntado vira a 'mesa' da negociação e faz o sistema recusar contraproposta válida sobre "
+    "o pacote que ele estava negociando de verdade). Só grave com o aceite EXPLÍCITO dele. "
+    "SEMPRE grave JUNTO com duracao_horas (a duração do programa cotado) — "
     "sem a duração o sistema não consegue conferir o teto e escala à toa uma oferta válida. "
     "Ele aceitando o que VOCÊ cotou ('fechado', 'isso', 'pode ser' — o mesmo momento em que você "
     "marca `aceita_valor`), o valor é o PREÇO QUE VOCÊ COTOU para o pacote em pauta: grave-o no "
@@ -254,7 +263,12 @@ _DESC_URGENCIA = (
     "tratá-lo como encontro de outro dia (pedir reconfirmação de manhã para uma noite que é hoje)."
 )
 _DESC_DURACAO = (
-    "Duração em horas do PACOTE que o cliente fechou — a duração do programa no seu cardápio "
+    "Duração em horas do PACOTE que o cliente PEDIU/fechou — a duração do programa no seu "
+    "cardápio. Ele PERGUNTAR o preço de uma duração ('e quanto é o de 12h?', 'qual seu período "
+    "mais longo?') NÃO é pedi-la: pergunta sobre pacote não escolhe pacote, o campo fica de "
+    "FORA nesse turno (gravar a duração perguntada faz o sistema negociar sobre a linha errada "
+    "da sua tabela). Só grave quando ele PEDE aquela duração para o encontro dele. "
+    "É a duração do programa "
     "(ex.: pernoite = 12h), NÃO a diferença de relógio entre o horário de início e o de fim que "
     "vocês conversaram. Se ele fecha um pernoite e vocês falam 'das 22h às 6h', a duração é 12h "
     "(o pacote), não 8h (o intervalo do relógio) — gravar o span do relógio faz o sistema não "
@@ -273,13 +287,26 @@ _DESC_DURACAO = (
     "Grave junto com valor_acordado quando ambos estiverem fechados: fechamento gravado sem "
     "duração e sem valor chega ao painel como um encontro marcado que ninguém sabe quanto custa."
 )
+# Campanha 13/08 (D-C3-1, eb02:139384791793838): "Qual o cachê? Hotel?" — o cliente perguntando se
+# o local DELA é hotel — virou `tipo_atendimento='externo'` + `tipo_local='hotel'`, e o belief
+# venceu o contexto dali em diante: a IA pediu "o endereço do hotel" ao cliente, a correção
+# explícita dele ("Não. Quem fica no hotel é você?") foi re-ecoada como externo, e o fechamento
+# saiu contraditório com Pix de deslocamento indevido. As duas descrições abaixo ganharam a MESMA
+# negação ativa dos campos de mesa (_DESC_VALOR/_DESC_DURACAO): pergunta não define o arranjo —
+# e correção de um dado já gravado é exatamente o que se registra.
 _DESC_TIPO_ATENDIMENTO = (
     "Quem se desloca. REGRA CRÍTICA de leitura: 'você/vc/te' na boca do CLIENTE se refere a "
     "VOCÊ (a modelo) — não inverta o sentido. "
     "ANTES dos três valores, uma regra do CAMPO: pergunta sobre MODALIDADE não escreve este campo. "
     "Ele perguntando se você atende em domicílio, se atende só no seu local, ou se faz chamada de "
     "vídeo é pergunta de SERVIÇO — o campo fica de fora, qualquer que seja a resposta que você vai "
-    "dar. Classifique pelo que o cliente diz:\n"
+    "dar. O mesmo vale para pergunta sobre o LOCAL: ele perguntando SE o seu local é hotel/casa, "
+    "onde você atende ou onde te encontra ('Qual o cachê? Hotel?', 'atende onde?', 'onde te "
+    "encontro?') está perguntando do SEU ponto de encontro — NÃO está dizendo que ELE está num "
+    "hotel nem te chamando até ele (caso real: um 'Hotel?' perguntando do local DELA foi gravado "
+    "como 'externo' e o sistema cobrou Pix de deslocamento de um encontro que era no local dela). "
+    "Pergunta NUNCA define quem se desloca: só grave quando ele PEDE ou AFIRMA o arranjo ('vou "
+    "até você', 'vem no meu hotel', 'prefiro na sua casa'). Classifique pelo que o cliente diz:\n"
     "- 'interno' = o CLIENTE vem até você (ele se desloca): 'vou', 'vou aí', 'vou até você', "
     "'vou no seu local', 'posso ir'. É também o PADRÃO: quando o encontro está sendo combinado "
     "no SEU local e ele NÃO sinalizou uber (você indo) nem chamada de vídeo, grave 'interno' "
@@ -307,7 +334,12 @@ _DESC_TIPO_ATENDIMENTO = (
     "Este campo é o que está COMBINADO, não o que ele PEDIU: se o tipo já foi acertado e ele "
     "tenta puxar para outro ('vem aqui em casa então') enquanto você recusa, deixe o campo de "
     "fora — trocá-lo aqui é o que faz o sistema cobrar Pix de deslocamento de um encontro que "
-    "continua sendo no seu local."
+    "continua sendo no seu local. "
+    "CORREÇÃO é diferente de pedido: se o tipo gravado nasceu de um mal-entendido — ele nunca "
+    "pediu aquele arranjo — e ele CORRIGE ou NEGA ('Não. Quem fica no hotel é você? Onde te "
+    "encontro?' desfaz um 'externo' gravado por engano), o turno em que ele corrige o "
+    "mal-entendido é o MAIS importante de gravar: regrave este campo com o tipo certo, nunca "
+    "repita o tipo gravado — a fala dele nesta conversa vence o que o sistema já anotou."
 )
 _DESC_ENDERECO = (
     "Endereço do CLIENTE / destino do atendimento (externo: onde ele está ou para onde vão — "
@@ -328,6 +360,16 @@ _DESC_AVISO_SAIDA = (
     "com outra coisa no mesmo turno (ex.: confirma o endereço, pergunta o "
     "horário) — o aviso de saída não é exclusivo de outros campos. "
     "NÃO pausa a IA — segue a conversa normal."
+)
+_DESC_DESLOCAMENTO_CLIENTE = (
+    "Só no atendimento EXTERNO (você indo até ele): QUEM paga a corrida. True quando o CLIENTE "
+    "declarou que é ele quem chama e paga o carro ('eu chamo o uber', 'mando um carro te "
+    "buscar', 'meu motorista te pega'). False quando ele volta atrás e devolve a corrida pra "
+    "você ('pode chamar você mesma', 'me manda o pix do uber'). Omita o campo quando ninguém "
+    "tocou no assunto neste turno — o registro é incremental e o valor anterior é preservado. "
+    "É o que desliga o Pix de deslocamento deste atendimento: ou você chama e ele adianta o "
+    "Pix, ou ele chama o ida e volta, nunca as duas coisas juntas. Uma pergunta ou uma "
+    "condição SUA que ele ainda não respondeu não é declaração dele — nesse turno, omita."
 )
 _DESC_LIMPAR = (
     "Campos a ZERAR (NULL) quando o cliente RECUA/desmarca — ex.: disse um horário "
@@ -351,18 +393,35 @@ _DESC_TIPO_LOCAL = (
     "Tipo do local do encontro que o cliente descreveu: 'hotel', 'motel', 'casa', 'apartamento'; "
     "'outro' quando não se encaixa. Vale para o local DELE (externo, você vai até ele) e para o "
     "lugar neutro que ele propõe ('vamos de motel?') — motel/lugar neutro que ELE escolhe segue a "
-    "conduta de EXTERNO (tipo_atendimento='externo', deslocamento por conta dele). Omita se não "
-    "ficou claro."
+    "conduta de EXTERNO (tipo_atendimento='externo', deslocamento por conta dele). "
+    "PERGUNTA não descreve local nenhum: ele perguntando SE o SEU local é hotel/casa/apartamento "
+    "('Qual o cachê? Hotel?', 'é apartamento?', 'quem fica no hotel é você?') está falando do SEU "
+    "ponto de encontro — o campo fica de FORA, mesmo que você confirme que é (caso real: esse "
+    "'Hotel?' gravado como 'hotel' fez o sistema tratar o encontro como no hotel DELE, com Pix de "
+    "deslocamento indevido). O SEU local NUNCA entra aqui. Só grave o local que ELE descreveu do "
+    "lado dele ('tô num hotel no centro') ou o lugar neutro que ele propôs — e se ele corrigir um "
+    "mal-entendido ('quem fica no hotel é você?'), não repita o gravado: o certo é "
+    '`limpar: ["tipo_local"]`, ou o local que ele de fato descreveu. Omita se não ficou claro.'
 )
 _DESC_FORMA_PAGAMENTO = (
     "Forma de pagamento que o cliente sinalizou pro programa: 'pix', 'dinheiro', ou 'outro' "
     "(cartão e afins entram em 'outro'). Omita enquanto ele não disser."
 )
+# Campanha 13/08 (eb02:266343857258751): cliente desistiu por item fora do cardápio ("sem anal
+# não rola") e a extração rotulou "preco" — o rótulo envenena o reengajamento (ultimo_motivo_perda
+# no contexto da retomada trata como objeção de valor quem nunca reclamou do valor). O enum é
+# FECHADO no banco (barravips.motivo_perda_enum: preco/sumiu/risco/indisponibilidade/fora_de_area/
+# outro — infra/sql/0001) e NÃO tem valor de serviço/cardápio; sem migration, a perda de cardápio
+# vai no rótulo neutro 'outro' e a distinção mora na descrição.
 _DESC_MOTIVO_PERDA = (
-    "Sinal de perda PROVÁVEL desta conversa: 'preco' = travou no valor, 'sumiu' = silêncio "
+    "Sinal de perda PROVÁVEL desta conversa: 'preco' = travou no VALOR (achou caro, pediu abaixo "
+    "e não fechou). NÃO rotule 'preco' quando o que travou foi o SERVIÇO: ele desistindo porque "
+    "um item que ele queria não está no seu cardápio ('sem anal não rola', 'só fecho com beijo') "
+    "não é perda de preço — use 'outro' (não existe rótulo de cardápio; marcar 'preco' faz a "
+    "retomada tratar como objeção de valor quem nunca reclamou do valor). 'sumiu' = silêncio "
     "prolongado, 'risco', 'indisponibilidade' = sem horário que sirva, 'fora_de_area', "
-    "'outro'. É só um candidato interno — NÃO encerra o atendimento nem muda sua conduta; "
-    "continue conduzindo normalmente."
+    "'outro' = qualquer outro motivo (inclusive item fora do cardápio). É só um candidato "
+    "interno — NÃO encerra o atendimento nem muda sua conduta; continue conduzindo normalmente."
 )
 _DESC_PROXIMA_ACAO = (
     "Nota interna curta pro painel (Fernando): a próxima ação que você espera na conversa "
@@ -392,8 +451,13 @@ class ExtracaoPayload(BaseModel):
     na assinatura da tool.
     """
 
-    # extra="forbid" => additionalProperties:false (strict tool use §7); nenhum dado de cliente
-    # entra em nome de campo/enum (a grammar do strict e cacheada fora das protecoes, §7).
+    # extra="forbid" = validacao INTERNA, e so. Ele NAO vira `additionalProperties:false` no schema
+    # enviado ao provider: o payload da tool sai com `['properties','required','type']` e mais nada,
+    # entao nada impede o modelo de inventar um campo — ele o inventa, e o ValidationError aqui
+    # derruba o turno depois (modo de falha 1 da fronteira LLM->tool, medido em 12/08). Quem
+    # transforma o schema em GRAMMAR e o `strict` tool use, atras de
+    # `settings.extracao_strict_habilitada` (ver `core.llm.tool_strict_deepseek`). Enquanto a flag
+    # estiver OFF, esta linha protege o nosso lado, nao a geracao.
     model_config = ConfigDict(extra="forbid")
 
     intencao: Literal["curiosidade", "cotacao", "agendamento"] | None = None
@@ -413,6 +477,15 @@ class ExtracaoPayload(BaseModel):
     ) = None
     aviso_saida_detectado: bool = False
     cotacao_apresentada: bool = False
+    # TRI-ESTADO de proposito (`bool | None`, nao `bool = False` como os dois acima): o default
+    # `False` daqueles e um FLAG DE TURNO (aconteceu agora / nao aconteceu), e o dominio os trata
+    # como latch por fora. Este e um FATO DO ATENDIMENTO com coluna propria no UPSERT incremental
+    # (`_CAMPOS_UPSERT`), entao precisa distinguir "ele disse que chama o uber" (True) de "ele
+    # devolveu a corrida pra voce" (False) de "ninguem tocou no assunto neste turno" (None ->
+    # `exclude_defaults` o tira do payload -> COALESCE preserva o que ja estava gravado). Com
+    # `bool = False` o turno mudo sobre transporte REGRAVARIA False todo turno e o carimbo do
+    # turno 2 morreria antes de o gate do Pix rodar, no turno 4 — que e exatamente o defeito.
+    deslocamento_por_conta_do_cliente: bool | None = None
     limpar: list[str] = Field(default_factory=list)
     # Sem coluna em `atendimentos` (como `motivo_perda_candidato`): fica no evento
     # `extracao_registrada` e e lido de la no fechamento (dominio/atendimentos/service.py:
@@ -468,6 +541,9 @@ async def registrar_extracao(
     ] = None,
     aviso_saida_detectado: Annotated[bool, Field(description=_DESC_AVISO_SAIDA)] = False,
     cotacao_apresentada: Annotated[bool, Field(description=_DESC_COTACAO)] = False,
+    deslocamento_por_conta_do_cliente: Annotated[
+        bool | None, Field(description=_DESC_DESLOCAMENTO_CLIENTE)
+    ] = None,
     limpar: Annotated[list[str] | None, Field(description=_DESC_LIMPAR)] = None,
     fetiches_em_pauta: Annotated[
         list[str] | None, Field(description=_DESC_FETICHES_EM_PAUTA)
@@ -576,6 +652,7 @@ async def registrar_extracao(
         motivo_perda_candidato=motivo_perda_candidato,
         aviso_saida_detectado=aviso_saida_detectado,
         cotacao_apresentada=cotacao_apresentada,
+        deslocamento_por_conta_do_cliente=deslocamento_por_conta_do_cliente,
         limpar=limpar or [],
         fetiches_em_pauta=fetiches_em_pauta or [],
         proxima_acao_esperada=proxima_acao_esperada,

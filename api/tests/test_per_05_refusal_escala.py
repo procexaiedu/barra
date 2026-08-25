@@ -73,7 +73,7 @@ async def test_no_llm_refusal_loga_categoria_e_roteia_extrair(
         response_metadata={"stop_reason": "refusal", "stop_details": {"category": "sexual"}},
     )
     node = no_llm(_FakeChat(resp), [])
-    runtime = SimpleNamespace(context=SimpleNamespace(turno_id="t-1"))
+    runtime = SimpleNamespace(context=SimpleNamespace(turno_id="t-1", turno_deadline_mono=None))
 
     with caplog.at_level(logging.WARNING, logger="barra.agente.nos.llm"):
         comando = await node({"messages": []}, runtime)  # type: ignore[arg-type]
@@ -231,7 +231,7 @@ async def test_motivo_modelo_recusou_mapeia_bucket_defesa() -> None:
     assert kwargs["tipo"] == TipoEscalada.outro
     assert kwargs["responsavel"] == "Fernando"
     assert kwargs["observacao"] == "modelo_recusou"
-    mock_metric.labels.assert_called_once_with("defesa", "modelo_recusou")
+    mock_metric.labels.assert_called_once_with("defesa", "modelo_recusou", "Triagem")
 
 
 async def test_coordenador_truncado_escala_modelo_truncado_sem_bolha() -> None:
@@ -352,7 +352,7 @@ async def test_motivo_modelo_truncado_mapeia_bucket_infra() -> None:
 
     mock_handoff.assert_awaited_once()
     assert mock_handoff.await_args.kwargs["observacao"] == "modelo_truncado"
-    mock_metric.labels.assert_called_once_with("infra", "modelo_truncado")
+    mock_metric.labels.assert_called_once_with("infra", "modelo_truncado", "Triagem")
 
 
 # ============================================================================

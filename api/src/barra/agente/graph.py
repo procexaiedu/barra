@@ -96,8 +96,16 @@ def _criar_chat_extracao_barata(settings: Settings) -> Any:
     `temperature=judge_temperature` (0.0) EXPLICITO: ate 12/08/2026 a chamada era sem parametro e
     isso NAO era determinismo — a factory omite o campo quando None e vale o default do provider
     (~1.0). Ler o estado da negociacao e classificacao, nao voz (loop-massa r3, achado 1).
+
+    `beta` segue `extracao_strict_habilitada`: o `strict` tool use so existe no endpoint Beta. E
+    exatamente por ser um chat SEPARADO que ele pode ir para la sem levar o chat #1 junto — o
+    caminho quente fica no endpoint estavel, com o cache de prefixo que ja conhecemos.
     """
-    return criar_chat_deepseek(settings, temperature=settings.judge_temperature)
+    return criar_chat_deepseek(
+        settings,
+        temperature=settings.judge_temperature,
+        beta=settings.extracao_strict_habilitada,
+    )
 
 
 def build_graph(settings: Settings | None = None, checkpointer: Any | None = None) -> Any:
