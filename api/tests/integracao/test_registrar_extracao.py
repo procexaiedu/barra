@@ -3251,6 +3251,7 @@ async def test_cotacao_dita_em_novo_ancora_o_fechamento_dois_turnos_depois(
     `Aguardando_confirmacao` batia em `CotacaoAusente`, a transacao revertia INTEIRA e a hora se
     perdia — com a IA dizendo "Confirmado amor" sobre um banco sem reserva (medido ao vivo 12/08).
     """
+    agora = datetime(2026, 12, 1, 9, 0, tzinfo=BRT)
     _, atendimento_id = await _seed_par(conn, cotou=False)  # estado Novo, sem carimbo
 
     carimbou = await carimbar_cotacao_por_texto_enviado(conn, atendimento_id, "400 1h no meu local")
@@ -3262,11 +3263,16 @@ async def test_cotacao_dita_em_novo_ancora_o_fechamento_dois_turnos_depois(
         {
             "intencao": "agendamento",
             "tipo_atendimento": "interno",
-            "data_desejada": "2026-08-20",
+            # A data e AMANHA de verdade, calculada do relogio, e nao a data em que este teste
+            # foi escrito. Cravada, ela virou uma bomba-relogio: passou a ser passado, a reserva
+            # passou a bater em `AntecedenciaInsuficiente` — que e a conduta CERTA para uma hora
+            # que ja foi — e o teste reprovou o codigo por acertar.
+            "data_desejada": (agora + timedelta(days=1)).date().isoformat(),
             "horario_desejado": "22:00",
             "duracao_horas": "1",
             "proxima_acao_esperada": "confirmar o encontro de amanha 22h",
         },
+        agora=agora,
         horario_evidenciado=True,  # "amanha 22h" saiu da boca DELE neste turno
     )
 
