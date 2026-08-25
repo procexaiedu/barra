@@ -228,12 +228,25 @@ _CAMPO_POR_ROTULO: dict[str, str] = {
     "nome do perfil / anuncio": "nome_anuncio",
     "nome do perfil": "nome_anuncio",
     "nome do anuncio": "nome_anuncio",
+    # "Nome no Anuncio" e a grafia que os telefonistas de Campinas usam no card que ja circula
+    # (25/08). Sem ela a linha inteira da CONTRATACAO caia fora e a ficha nascia sem perfil e sem
+    # a origem colada ao nome — a modelo ainda era achada pela dona do grupo, mas a metrica
+    # proprio x fake nascia nula em todo card.
+    "nome no anuncio": "nome_anuncio",
+    "nome no perfil": "nome_anuncio",
     "perfil/anuncio": "nome_anuncio",
     "perfil": "nome_anuncio",
     "anuncio": "nome_anuncio",
     "site": "site",
     "plataforma": "site",
     "origem": "origem",
+    # O Comunicado real escreve o eixo proprio x fake como "Anuncio/Origem: ( ) Proprio ( ) Fake",
+    # colando os dois nomes num rotulo so. E rotulo de ORIGEM, nao de nome de anuncio: o que vem
+    # depois do ":" sao as duas opcoes, nunca um nome.
+    "anuncio/origem": "origem",
+    "anuncio / origem": "origem",
+    "origem/anuncio": "origem",
+    "origem do anuncio": "origem",
     "nome da modelo": "nome_da_modelo",
     "modelo": "nome_da_modelo",
     "acompanhante": "nome_da_modelo",
@@ -558,6 +571,11 @@ def ler_ficha(texto: str, *, hoje: date | None = None) -> FichaLida | None:
     rotulos = 0
     tem_parentese = False
     indice_de_observacoes: int | None = None
+    # A secao de PAGAMENTO acabou de abrir SEM valor na propria linha ("💳 *PAGAMENTO*"), e a
+    # forma pode estar sozinha na linha de baixo. E como o Comunicado real e escrito (25/08):
+    # o telefonista apaga as opcoes que nao valem e deixa so "Pix". Sem esta janela a forma se
+    # perdia — e forma e justamente a pendencia que a cobranca da manha mais persegue.
+    pagamento_aberto = False
 
     for i, linha in enumerate(linhas):
         if _PARENTESE.search(linha):
@@ -571,24 +589,38 @@ def ler_ficha(texto: str, *, hoje: date | None = None) -> FichaLida | None:
             if campo is not None and escolhida is not None:
                 marcadas.setdefault(campo, escolhida)
                 rotulos += 1
+                pagamento_aberto = False
                 continue
             rotulo, valor = _sem_ornamento(linha) or None, ""
+            # A janela e estreita de proposito: SO a linha imediatamente abaixo do cabecalho, e so
+            # se ela for uma palavra do vocabulario fechado de formas. Aceitar "pix" solto em
+            # qualquer lugar do card faria uma observacao de uma palavra ("dinheiro") virar forma
+            # de pagamento, e a linha some das observacoes ao ser consumida aqui.
+            if pagamento_aberto and rotulo in _FORMAS:
+                marcadas.setdefault("forma_pagamento", linha)
+                rotulos += 1
+                pagamento_aberto = False
+                continue
+            pagamento_aberto = False
             if rotulo is None or rotulo not in _CAMPO_POR_ROTULO:
                 continue
 
         numerada = _MODELO_NUMERADA.match(rotulo)
         if numerada is not None:
             rotulos += 1
+            pagamento_aberto = False
             if valor:
                 modelos_numeradas.append((int(numerada.group(1)), valor))
             continue
 
         campo = _CAMPO_POR_ROTULO.get(rotulo)
         if campo is None:
+            pagamento_aberto = False
             continue
         rotulos += 1
         if campo == "observacoes":
             indice_de_observacoes = i
+        pagamento_aberto = campo == "forma_pagamento" and not valor
         if valor:
             campos.setdefault(campo, valor)
 

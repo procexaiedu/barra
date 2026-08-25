@@ -237,6 +237,150 @@ def test_comunicado_nao_e_confundido_com_ficha_completa() -> None:
     assert lida.data is None and lida.hora is None
 
 
+# --- as grafias que a operacao de Campinas usa de verdade (25/08/2026) --------------------------
+#
+# Os dois textos abaixo NAO sao o template do `docs/dominio/fichas-do-telefonista.md`: sao o que o
+# telefonista posta hoje nos grupos "Campinas Modelo Gabriela / Financeiro" e "... Beatriz". Eles
+# entraram porque cada divergencia de rotulo custava um campo inteiro em silencio — e um campo que
+# o parser nao le nao aparece em lugar nenhum como erro, so como coluna vazia no painel.
+
+CARD_DE_CAMPINAS = """📋 FICHA DE AGENDAMENTO
+
+👤 CLIENTE
+Nome: daniel
+
+📝 CONTRATAÇÃO
+Nome no Anúncio: Megan - dupla com Alicia
+
+🕒 HORÁRIO
+Duração: 1h
+
+📍 LOCAL
+( x ) Local próprio
+( ) Saída
+
+💰 VALORES
+Valor: R$600,00
+
+💳 PAGAMENTO
+Forma: ( )Pix ( )Dinheiro ( )Cartão
+
+✏️ OBSERVAÇÕES
+"""
+
+COMUNICADO_DE_CAMPINAS = """👤 CLIENTE
+
+Nome: Marcos
+
+📝 CONTRATAÇÃO
+
+Nome do Perfil: Megan
+Anúncio/Origem: ( x ) Próprio ( ) Fake
+
+📍 LOCAL DO JOB
+
+Tipo: Hotel
+Endereço: Av. Brasil, 100
+
+🕒 HORÁRIO
+
+Duração: 2h
+
+💰 VALOR DO JOB
+
+Valor total: R$ 1.200,00
+
+💳 PAGAMENTO
+
+Pix
+
+✏️ OBSERVAÇÕES
+
+Cliente não quer que passe perfume.
+"""
+
+
+def test_nome_no_anuncio_e_lido_como_nome_de_anuncio() -> None:
+    """ "Nome NO Anúncio" — a preposicao que o card de Campinas usa e o template nao previa.
+
+    Sem o rotulo a linha inteira caia fora: a ficha nascia sem perfil, e com ela ia embora a marca
+    de origem colada ao nome, que e o eixo proprio x fake que o dono pediu para medir.
+    """
+    lida = ler_ficha(CARD_DE_CAMPINAS, hoje=HOJE)
+
+    assert lida is not None
+    assert lida.nome_anuncio == "Megan - dupla com Alicia"
+    assert lida.valor_da_modelo == Decimal("600.00")
+    assert lida.duracao_minutos == 60
+    assert lida.tipo_atendimento == "interno"
+    # Nada marcado entre "( )Pix ( )Dinheiro ( )Cartão" continua sendo forma NAO dita — e ela e
+    # cobrada de manha, junto com as outras pendencias.
+    assert lida.forma_pagamento is None
+
+
+def test_anuncio_barra_origem_e_rotulo_de_origem_e_nao_de_nome() -> None:
+    """ "Anúncio/Origem: ( x ) Próprio ( ) Fake" cola os dois nomes num rotulo so.
+
+    O que vem depois do ":" sao as duas opcoes, nunca um nome — ler isso como `nome_anuncio`
+    gravaria "( x ) Próprio ( ) Fake" como o perfil pelo qual o cliente comprou.
+    """
+    lida = ler_ficha(COMUNICADO_DE_CAMPINAS, hoje=HOJE)
+
+    assert lida is not None
+    assert lida.origem == "proprio"
+    assert lida.nome_anuncio == "Megan"
+
+
+def test_forma_sozinha_embaixo_do_cabecalho_de_pagamento_e_lida() -> None:
+    """O telefonista apaga as opcoes que nao valem e deixa so "Pix" na linha de baixo.
+
+    Forma e a pendencia que a cobranca da manha mais persegue: perde-la aqui e cobrar no grupo uma
+    coisa que o card ja dizia.
+    """
+    lida = ler_ficha(COMUNICADO_DE_CAMPINAS, hoje=HOJE)
+
+    assert lida is not None
+    assert lida.forma_pagamento == "pix"
+    assert lida.observacoes == "Cliente não quer que passe perfume."
+
+
+def test_palavra_de_forma_longe_do_cabecalho_nao_vira_forma() -> None:
+    """A janela e SO a linha seguinte ao cabecalho — senao uma observacao de uma palavra viraria
+    forma de pagamento, e ainda sumiria das observacoes ao ser consumida."""
+    texto = COMUNICADO_DE_CAMPINAS.replace("\nPix\n", "\n").replace(
+        "Cliente não quer que passe perfume.", "dinheiro"
+    )
+    lida = ler_ficha(texto, hoje=HOJE)
+
+    assert lida is not None
+    assert lida.forma_pagamento is None
+    assert lida.observacoes == "dinheiro"
+
+
+def test_o_comunicado_de_campinas_nao_se_distingue_pela_marca_do_adr0046() -> None:
+    """Limite conhecido, fixado aqui para nao ser descoberto em producao.
+
+    O ADR-0046 separa o comunicado da ficha completa por duas marcas mecanicas: ele nao tem `( )`
+    e nao tem `Valor total`. O comunicado que Campinas usa tem AS DUAS — o `( )` vem do
+    `Anúncio/Origem` e o rotulo do valor dela e literalmente "Valor total". Logo ele e lido como
+    ficha completa.
+
+    Hoje isso e inofensivo e ate correto: nao existe Grupo de fichas (a operacao adiou), entao o
+    comunicado e o UNICO documento daquele atendimento e tem mesmo que criar a ficha. Vira
+    problema no dia em que o Grupo de fichas existir, porque o mesmo job chegara por duas portas
+    com conteudos diferentes e as duas criarao ficha. O conserto e do lado do TEMPLATE (tirar o
+    `( )` do Anúncio/Origem e escrever "Valor:"), nao de um discriminador que adivinhe.
+    """
+    lida = ler_ficha(COMUNICADO_DE_CAMPINAS, hoje=HOJE)
+
+    assert lida is not None
+    assert lida.documento == "individual"
+    # O valor dela chega inteiro do mesmo jeito: com UMA participante, `Valor total` e o valor
+    # dela (nao ha rateio a supor).
+    plano = planejar_ficha(lida, cadastro=CADASTRO, dona_do_grupo=BIANCA)
+    assert [p.valor for p in plano.participantes] == [Decimal("1200.00")]
+
+
 def test_comunicado_sem_nome_de_modelo_cai_na_dona_do_grupo() -> None:
     """Ele vai para o grupo individual dela: o vinculo grupo<->modelo e closed-world, sem palpite.
 
