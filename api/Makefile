@@ -1,4 +1,4 @@
-.PHONY: dev worker test test-llm lint format typecheck migrate sync evals gate-conduta ab-thinking bancada-extracao graduacao
+.PHONY: dev worker test test-llm lint format typecheck migrate sync evals regressao gate-conduta ab-thinking bancada-extracao graduacao
 
 sync:
 	uv sync
@@ -20,6 +20,15 @@ test-llm:
 # EVALS_K=5 no gate de cutover; default 1. Ver api/evals/ (README/docstrings).
 evals:
 	RUN_LLM_TESTS=1 uv run pytest tests/agente/test_gate_seguranca.py -v
+
+# Gate de REGRESSAO em duas fases (evals/e2e/regressao.py). Fase A monta o contexto dos cenarios
+# com o chat FAKE e compara o carimbo com o baseline versionado — ~R$ 0,01, sem credito. Ela nao
+# mede conduta: decide QUEM precisa do LLM. Sem argumento, so diagnostica.
+#   make regressao                          # Fase A (gratis)
+#   make regressao ARGS="--executar-fase-b" # + LLM nos selecionados (exige E2E_AUTORIZADO=1)
+#   make regressao ARGS="--gravar-baseline" # apos uma corrida REAL verde
+regressao:
+	uv run python -m evals.e2e.regressao $(ARGS)
 
 # Dashboard de regressao do gate: serie historica (pass-rate/custo/write-rate/p95 por execucao).
 evals-tendencia:

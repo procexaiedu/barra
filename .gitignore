@@ -115,6 +115,20 @@ _dump_*.txt
 # Export de contatos reais (PII de clientes); só local, nunca no repo.
 contacts*.csv
 
+# Export de conversa do WhatsApp (o zip que o app gera: `_chat.txt` + as fotos do grupo).
+# É a fonte de verdade do Agente financeiro (spec 0005) e é PII de pessoa real de ponta a ponta:
+# nome civil, comprovantes bancários, chave Pix viva. Fica no disco de quem trabalha nele, nunca
+# no histórico do git — de onde não sai sem rewrite.
+WhatsApp Chat*.zip
+WhatsApp Chat*/
+
+# Transcricao crua de reuniao com o cliente (`ata.txt`, `reuniaoalinhamento.txt`): nome civil das
+# modelos, mecanica de pagamento, chave Pix dita em voz alta. A DECISAO que sai da reuniao vira
+# ADR e spec em `docs/` — a transcricao nao precisa entrar no historico para isso, e do historico
+# nao sai sem rewrite. Mesmo criterio do export de conversa acima.
+ata*.txt
+reuniao*.txt
+
 # Amostras de calibração dos judges (scripts/calibracao): carregam o texto das bolhas e o
 # contexto da conversa real. PII de cliente — só local, nunca no repo.
 amostra_calibracao*.csv

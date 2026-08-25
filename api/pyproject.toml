@@ -52,6 +52,10 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "ASYNC", "S", "RUF"]
+# Tipografia pt-BR corrente no projeto, nao typo: o travessao curto aparece em prosa E dentro de
+# classes de caractere de regex (a modelo digita "–" no WhatsApp, e o padrao TEM de casar com ele),
+# e o sinal de multiplicacao aparece em docstring ("foto x confirmacao").
+allowed-confusables = ["–", "×"]
 ignore = [
     "B008",  # FastAPI Depends em defaults e padrao aceito pelo framework
     "E501",  # SQL multiline e tipos longos ficam mais legiveis sem quebra artificial
@@ -66,6 +70,16 @@ ignore = [
 # cliente: a semelhanca visual com < > e o REQUISITO da defesa, nao um typo — o alerta de
 # caractere ambiguo mede exatamente o que se quer aqui.
 "src/barra/agente/nos/prepare_context.py" = ["RUF001", "RUF002"]
+# `_RE_TOKEN_PROVIDER` casa o token DSML com `｜` FULLWIDTH: o caractere ambiguo e o proprio
+# alvo da deteccao de vazamento de raciocinio, nao um typo.
+"src/barra/agente/nos/output_guard.py" = ["RUF001", "RUF003"]
+# Os testes do mesmo detector precisam escrever o token com o `｜` FULLWIDTH de verdade: trocar
+# pelo `|` comum tornaria o teste vacuo — ele passaria a nao exercitar o caractere que o detector
+# procura. Mesma justificativa do arquivo acima, do outro lado da fronteira.
+"tests/agente/test_output_guard_ciclo2.py" = ["RUF001", "RUF002", "RUF003"]
+# `evals/` sao scripts de bancada, nao codigo de producao: `/tmp` como default de diretorio de
+# trabalho e `pathlib` dentro de funcao async sao aceitaveis aqui e em nenhum lugar de `src/`.
+"evals/**" = ["S108", "ASYNC240"]
 
 [tool.mypy]
 python_version = "3.12"

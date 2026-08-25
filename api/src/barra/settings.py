@@ -209,6 +209,22 @@ class Settings(BaseSettings):
         default=True,
         description="Roteia a chamada FORCADA de registrar_extracao p/ uma janela minima (sem o prefixo geral), em vez do prefixo inteiro. Sempre DeepSeek V4 Flash. False = usa o prefixo inteiro (kill-switch sem deploy).",
     )
+    # `strict` tool use (Beta) na chamada FORCADA da extracao. Sem ele o schema so e VALIDADO depois
+    # que o modelo gerou: campo inventado / enum fora do dominio viram ValidationError e o turno
+    # morre no parse. Com ele a grammar do provider impede a geracao invalida.
+    #
+    # Default ON (decisao do usuario, 13/08/2026). Kill-switch sem deploy: env
+    # `EXTRACAO_STRICT_HABILITADA=false`. Ligar troca o endpoint da EXTRACAO (so ela) por
+    # `api.deepseek.com/beta`; a medicao de `prompt_cache_hit_tokens`/output tokens la fica p/ o
+    # lote de validacao do ciclo 4.
+    #
+    # So tem efeito com `extracao_no_modelo_barato` ON (o default): e nessa configuracao que a
+    # extracao tem chat PROPRIO. Com ela OFF a forcada reusa a instancia do chat #1, e ligar strict
+    # arrastaria o caminho quente inteiro para o Beta — exatamente o que nao se quer.
+    extracao_strict_habilitada: bool = Field(
+        default=True,
+        description="Liga o `strict` tool use (Beta) na extracao forcada: schema vira grammar em vez de validacao pos-hoc. Troca o endpoint da extracao p/ api.deepseek.com/beta. Exige extracao_no_modelo_barato=True.",
+    )
     # Paralelismo da chamada forcada da extracao (medicao 11/08 em traces reais: extracao 2,56s +
     # chat 2,51s, hoje em SERIE = ~5s por turno). A janela da extracao e a conversa CRUA + ancora +
     # <ja_registrado> e exclui a fala do turno, entao no turno SEM tool call ela ja esta pronta antes
@@ -363,6 +379,20 @@ class Settings(BaseSettings):
             "Global."
         ),
     )
+    agenda_buffer_externo_min: int = Field(
+        default=60,
+        ge=0,
+        description=(
+            "Gap em minutos ao redor de um bloqueio EXTERNO — o compromisso que acontece fora do "
+            "local dela (emenda ADR 0025, 2026-08-14). Vale dos DOIS lados do bloqueio externo: "
+            "depois (ela voltando da casa do cliente) e antes (ela indo). Substitui o "
+            "agenda_buffer_min só quando o tipo do VIZINHO é externo — tipo NULL/desconhecido "
+            "segue no agenda_buffer_min, então nada muda para bloqueio que não declara tipo. "
+            "60 = 2x o buffer padrão: é a menor folga honesta para uma volta de carro na cidade "
+            "sem geocoding (não há distância medida; 45 fingiria uma mediana que ninguém mediu) e "
+            "cai na grade de :00/:30 em que a oferta é arredondada. Global."
+        ),
+    )
     agenda_antecedencia_sem_deslocamento_min: int = Field(
         default=0,
         ge=0,
@@ -430,6 +460,14 @@ class Settings(BaseSettings):
     digest_semanal_ativo: bool = Field(
         default=True,
         description="Liga o digest diário automático pro Fernando (cron diário de manhã): card no grupo de Coordenação de cada modelo ativa com conversas/fechados/handoffs/incidentes contidos do dia. Kill-switch via DIGEST_SEMANAL_ATIVO=false.",
+    )
+    grupo_financeiro_rotina_ativa: bool = Field(
+        default=True,
+        description="Liga a rotina diária da manhã do Agente financeiro (spec 0005): UMA mensagem consolidada por Grupo financeiro cobrando as pendências (forma de pagamento, comprovante) e postando o saldo aberto. Grupo sem pendência e sem movimento fica em silêncio. Kill-switch via GRUPO_FINANCEIRO_ROTINA_ATIVA=false.",
+    )
+    grupo_financeiro_instancia: str = Field(
+        default="",
+        description="Instância Evolution do número da ProceX — o número do Agente financeiro, o mesmo em todos os Grupos financeiros. Usada pelo cron da manhã E pelo webhook: a modelo é participante do Grupo financeiro e o WhatsApp dela é outra instância apontando para o mesmo webhook, então o evento chega duas vezes e só a entrega da ProceX vale (na entrega dela o `fromMe` se inverte e as falas da modelo virariam eco do agente). VAZIA = rotina da manhã desligada e webhook sem filtro de instância (fail-open); prod deve defini-la.",
     )
     rollback_watch_ativo: bool = Field(
         default=True,

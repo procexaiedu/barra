@@ -141,10 +141,35 @@ AGENTE_TURNO_RESULTADO = Counter(
 # bucket=defesa (ataque ativo, desejavel; spike -> alerta) | capacidade (cego a
 # alucinacao-sem-escalada, por isso nao gateia o cutover). mapa motivo->bucket vive
 # em codigo (deterministico) e o enum de motivo aceito por `escalar` e restrito.
+#
+# `fase` (ciclo 8) = o ESTADO do atendimento no momento em que o handoff abriu
+# (`Novo|Triagem|Qualificado|Aguardando_confirmacao|Confirmado|Em_execucao|Fechado|Perdido`, mais
+# `desconhecida` quando o atendimento sumiu entre a decisao e a contagem). Sem ela a serie diz
+# quantas escaladas houve e nao diz se elas sao SAUDAVEIS: escalada em `Novo`/`Triagem` e a
+# assinatura do handoff indevido — a conversa morre no turno em que ainda era duvida, antes de
+# existir venda para proteger (os 4 handoffs do ciclo 7; o caso 1 abriu no turno 1, em `Novo`).
+# Escalada em `Aguardando_confirmacao`/`Em_execucao` e o oposto: ha encontro marcado e acordar a
+# modelo e o comportamento certo. Alerta proposto:
+# `increase(agente_escalada_total{fase=~"Novo|Triagem"}[1h]) > 0` como warning.
+# Cardinalidade fechada por enum nos tres eixos (bucket x motivo x fase).
 AGENTE_ESCALADA = Counter(
     "agente_escalada_total",
-    "Escaladas por bucket/motivo (ver docs/agente/08-evals.md 3.2)",
-    ["bucket", "motivo"],
+    "Escaladas por bucket/motivo/fase do atendimento (ver docs/agente/08-evals.md 3.2)",
+    ["bucket", "motivo", "fase"],
+)
+# Porta B da escalada: a guarda DETERMINISTICA da extracao (`dominio/atendimentos/service.py`,
+# `_escalar_modelo`) abrindo handoff e pausando a IA sem o LLM ter decidido nada. Serie IRMA de
+# `agente_escalada_total`, nao a mesma: aquela significa "o LLM chamou `escalar`" e a distincao
+# vale dinheiro na leitura — 3 dos 4 handoffs indevidos do ciclo 7 nasceram AQUI e eram invisiveis
+# em Prometheus (a metrica sempre viveu na camada do agente e ninguem a espelhou no dominio).
+# `motivo` e fechado pelo mapping local de `_escalar_modelo` (`fora_de_oferta` = piso de desconto
+# furado com insistencia; `reagendamento_pos_bloqueio` = mudanca de horario ja reservado) e `fase`
+# tem a mesma semantica da serie do LLM. Conta so o handoff EFETIVAMENTE aberto (`abrir_handoff`
+# devolvendo id): reprocessamento do turno cai no guard de idempotencia e nao pode re-contar.
+AGENTE_ESCALADA_DOMINIO = Counter(
+    "agente_escalada_dominio_total",
+    "Escaladas abertas pelas guardas deterministicas do dominio (porta B), por motivo/fase",
+    ["motivo", "fase"],
 )
 AGENTE_TOOL_ERRO_RECUPERAVEL = Counter(
     "agente_tool_erro_recuperavel_total",
@@ -192,6 +217,40 @@ AGENTE_EXTRACAO_CAMPO_DESCARTADO = Counter(
     "campo do payload da extracao descartado no saneamento por nao casar o schema",
     ["campo", "motivo"],
 )
+# `tipo_atendimento` que a modelo NAO vende, descartado pela guarda do dominio (ciclo 8). Ate o
+# ciclo 7 esse caso ESCALAVA — barulhento, visivel e errado (a pergunta "faz video chamada?" virava
+# handoff no turno 1). Virou descarte silencioso, e sem contador trocamos um sintoma barulhento por
+# um silencio: se a extracao passar a classificar `remoto` por engano em massa, ou se um cadastro
+# perder o tipo que ela de fato vende, ninguem ve. Mesmo argumento que ja justificou
+# `agente_extracao_campo_descartado_total` ("descartar e o certo, mas e uma perda MUDA de dado").
+# `tipo` e o valor que a extracao pediu, restrito ao enum do dominio (`interno|externo|remoto`);
+# qualquer outra coisa cai em `outro` para nao abrir cardinalidade com texto do LLM.
+AGENTE_EXTRACAO_TIPO_FORA_DE_OFERTA = Counter(
+    "agente_extracao_tipo_fora_de_oferta_total",
+    "tipo_atendimento descartado pela guarda do dominio: a modelo nao realiza esse tipo",
+    ["tipo"],
+)
+# Divergencia de CADASTRO da video chamada (R2 do diagnostico de handoffs indevidos). O mesmo
+# produto e governado por dois interruptores independentes: `modelos.tipo_atendimento_aceito[]`
+# (o checkbox do painel, que o DOMINIO le) e a linha de video chamada em `modelo_programas` (o
+# cardapio, que o PROMPT le para decidir se vende). `modo` nomeia qual dos dois lados esta sozinho:
+#   `programa_sem_checkbox` = ela VENDE a chamada e o checkbox esta off. Era o modo que mais doia:
+#     o prompt cotava 150/15min, o cliente aceitava e toda extracao `remoto` era descartada — a
+#     venda acontecia na conversa e nao existia no sistema (o trilho ADR-0021/0029 nunca armava).
+#     Desde o fix do ciclo 8 o dominio ACEITA por derivacao do programa, entao a serie mede
+#     cadastro a arrumar, nao mais venda perdida.
+#   `checkbox_sem_programa` = o checkbox esta on e nao ha linha de chamada. O prompt renderiza
+#     `<sem_video_chamada>` ("Nao faco chamada amor") e o dominio grava `tipo=remoto` assim mesmo:
+#     o `<ja_combinado>` do belief passa a dizer "remoto" numa conversa em que a IA acabou de negar
+#     a chamada (belief vence prompt). Continua ACEITO de proposito — reprova-lo tiraria uma
+#     capacidade que existe hoje em producao, e isso e decisao do dono, nao do fix.
+# So e medido quando a extracao propoe `remoto` (e o unico momento em que o dominio olha os dois
+# lados): a serie e um sensor de cadastro incoerente EM USO, nao um censo do cadastro.
+AGENTE_CADASTRO_REMOTO_INCOERENTE = Counter(
+    "agente_cadastro_remoto_incoerente_total",
+    "cadastro de video chamada com os dois interruptores divergindo (checkbox x programa)",
+    ["modo"],
+)
 # Guarda do piso de desconto, agora amarrada ao PACOTE (programa x duracao). O furo que ela fecha
 # era mudo por construcao: com dois programas na mesma duracao (Normal 400 / Completo 800) o piso
 # de QUALQUER pacote de 1h era o da linha mais barata, entao fechar o Completo a 300 passava sem
@@ -200,18 +259,25 @@ AGENTE_EXTRACAO_CAMPO_DESCARTADO = Counter(
 # (programa_vendido = `atendimento_servicos`; duracao_unica = a duracao tem um piso so;
 # preco_cotado = o pacote foi DEDUZIDO do preco que a IA ja cotou na conversa, que casa com uma
 # linha so da duracao; duracao_ambigua = pisos divergentes, nenhum programa identificado e a
-# deducao tambem nao resolveu, o fail-closed; sem_linha = sem tabela para o par) e `resultado` diz
+# deducao tambem nao resolveu, o fail-closed; sem_linha = sem tabela para o par; linha_cotada e
+# duracao_desconhecida = os dois desfechos do atendimento sem duracao NENHUMA gravada, com a
+# cotacao da IA identificando uma linha so da tabela inteira ou nao identificando — ciclo 7 da
+# campanha) e `resultado` diz
 # o que a guarda decidiu, em TRES valores desde a r3 (loop-massa r3, achado 2c): `aceito` = o valor
 # passou do piso e foi gravado; `escalado` = furou o piso COM insistencia (`n_contrapropostas >= 1`,
 # rodada da escada de fato JOGADA) e a modelo foi acordada por `fora_de_oferta`, com a IA pausada;
-# `descartado` = furou o piso na rodada 0, com a escada intacta -- o valor nao e gravado, mas nao
-# escala: escalar ali pre-emptava a propria contraproposta que o modelo tinha acabado de escrever
-# (`post_process` zera as AIMessages no turno da escalada). O split entre `escalado` e `descartado`
-# e o que mede se o lowball esta chegando antes ou depois de a escada ser jogada.
+# `descartado` = furou o piso e NADA pausou -- rodada 0 com a escada intacta (escalar ali
+# pre-emptava a propria contraproposta que o modelo tinha acabado de escrever; o `post_process`
+# zera as AIMessages no turno da escalada) ou `duracao_desconhecida` com a cotacao ja enviada
+# (fail-closed sobre cadastro incompleto no turno do fechamento, que nao pode pausar a IA). O
+# rotulo segue a DECISAO: todo `escalado` na serie e uma modelo acordada de verdade. O split entre
+# `escalado` e `descartado` e o que mede se o lowball esta chegando antes ou depois de a escada ser
+# jogada.
 # `duracao_ambigua` subindo e o sinal de cadastro que precisa do painel escrevendo o servico
 # vendido -- e de escalada que a modelo vai ver. `preco_cotado` e a serie que mede se a deducao
 # esta pegando: ela caindo com `duracao_ambigua` subindo = a IA esta fechando sem cotar antes, ou
-# o scanner de fala parou de reconhecer a cotacao.
+# o scanner de fala parou de reconhecer a cotacao. `duracao_desconhecida` subindo e o alarme da
+# EXTRACAO, nao do cadastro: o fechamento esta chegando sem ninguem ter gravado a duracao do pacote.
 AGENTE_PISO_PACOTE = Counter(
     "agente_piso_pacote_total",
     "Guarda do piso de desconto por pacote: de onde saiu o piso e o que ela decidiu",
@@ -429,6 +495,14 @@ OUTPUT_PRECO_FANTASMA = Counter(
     "Bolhas que citam preco fora do conjunto legitimo da modelo, por acao",
     ["acao"],  # dropada | mudo
 )
+# Hora fantasma (corrida real c12cen_v2, 14/08): a bolha CONFIRMOU horario diferente do que a
+# extracao do MESMO turno gravou (e do que a reserva criou). Irmao de agenda do preco/incluso/
+# servico fantasma — mesmo trilho: regenera 1x, dropa a bolha se persistir.
+OUTPUT_HORA_FANTASMA = Counter(
+    "agente_output_hora_fantasma_total",
+    "Bolhas que confirmam horario diferente do gravado no turno, por acao",
+    ["acao"],  # dropada | mudo
+)
 # Endereco sonegado (rodada 3 do eval, fase 1-E): o cliente pediu a localizacao, o estagio ja
 # libera o <local_de_encontro> e a resposta nao entregou nenhum token do endereco. Rede de
 # MELHORIA: regenera 1x pedindo a entrega; persistiu -> o texto segue como esta (pass-through).
@@ -451,6 +525,28 @@ OUTPUT_PEDAGIO_DETECTADO = Counter(
 OUTPUT_SAUDACAO_CONFLITANTE = Counter(
     "agente_output_saudacao_conflitante_total",
     "Respostas com saudacao de periodo conflitante com a do cliente, por acao",
+    ["acao"],  # persistiu | sem_regen
+)
+# Despedida PASSIVA (campanha 13/08, ciclo 2 — 3 casos no lote): a IA encerra o turno devolvendo a
+# iniciativa ao cliente ("Me chama quando quiser") sem proximo passo concreto nem pergunta. Os
+# blocos condicionais de prompt nao pegam (o gatilho deles e o burst do CLIENTE); a superficie
+# robusta e a FALA da IA. Rede de MELHORIA: regenera 1x pedindo o proximo passo concreto;
+# persistiu -> pass-through se a cauda e a bolha UNICA do turno, ou corte da cauda (`cortada`)
+# quando o turno tem outras bolhas boas (ciclo 4: a regen que reincide ja teve sua chance de
+# substituta).
+OUTPUT_DESPEDIDA_PASSIVA = Counter(
+    "agente_output_despedida_passiva_total",
+    "Turnos encerrados com despedida passiva (iniciativa devolvida ao cliente), por acao",
+    ["acao"],  # persistiu | sem_regen | cortada
+)
+# Promessa de MIDIA sem tool (campanha 13/08, ciclo 3 — eb03:32904415564000 t7/t10): bolha
+# promete envio de foto/video ("te mando sim") sem nenhuma `enviar_midia` executada no turno —
+# a variante condicionada ("confirma o horario que eu mando") e a forma exata do deadlock do c2.
+# Rede de MELHORIA: regenera 1x pedindo a fala sem promessa (a regen nao chama tool); persistiu
+# -> pass-through.
+OUTPUT_PROMESSA_MIDIA = Counter(
+    "agente_output_promessa_midia_total",
+    "Bolhas prometendo envio de midia sem enviar_midia executada no turno, por acao",
     ["acao"],  # persistiu | sem_regen
 )
 # Marcador de reply [quote]/[quote: trecho] residual removido pela rede final antes do envio: o
@@ -536,7 +632,10 @@ PIX_VALIDACAO_DECISAO = Counter(
 PIX_DIVERGENCIA = Counter(
     "agente_pix_divergencia_total",
     "Motivo que levou um comprovante a em_revisao (06 §7; sem timestamp por §0 item 11)",
-    ["motivo"],  # plausibilidade | legibilidade | valor | chave | titular | midia | vision
+    # `MotivoDeSuspeita` (ADR-0049 §5), o mesmo vocabulario dos dois caminhos de comprovante:
+    # imagem_repetida | sem_leitura | imagem_implausivel | imagem_ilegivel |
+    # valor_abaixo_do_esperado | destino_desconhecido | titular_divergente
+    ["motivo"],
 )
 # 06 §1.3: pipeline de transcricao Whisper.
 TRANSCRICAO_DURACAO = Histogram(
@@ -581,6 +680,101 @@ JUDGE_VAZAMENTO_DADO = Counter(
     "agente_judge_vazamento_dado_total",
     "Turnos enviados com vazamento de dado duro (unidade/Pix/telefone) visto pelo judge pos-envio",
     ["faixa"],  # sim | nao
+)
+
+
+# Porta unica do Agente financeiro (spec 0005): o que a ingestao fez com cada mensagem que chegou
+# de um grupo. `grupo_nao_cadastrado` e o descarte NORMAL do numero compartilhado da ProceX
+# (myEYE + grupos financeiros) — a serie existe para flagrar o inverso: um grupo que deveria estar
+# cadastrado e nao esta aparece como um fluxo constante de descartes em vez de silencio no painel.
+GRUPO_FINANCEIRO = Counter(
+    "barra_grupo_financeiro_mensagens_total",
+    "Mensagens que entraram pela porta unica do Agente financeiro",
+    ["resultado"],  # registrada | duplicada | grupo_nao_cadastrado | delecao
+)
+
+# Desfecho de CONDUTA da mensagem ja aceita (spec 0005, ticket 02): virou Venda registrada ou
+# morreu por que? `nao_e_anuncio` e o volume normal do grupo (ele e social). O que se vigia aqui e
+# o resto: `sem_valor`/`nome_desconhecido` subindo significa gestora escrevendo fora da gramatica
+# que o agente le — ou seja, venda real que o sistema NAO esta capturando, o unico jeito de a
+# ingestao falhar em silencio.
+GRUPO_FINANCEIRO_ANUNCIOS = Counter(
+    "barra_grupo_financeiro_anuncios_total",
+    "Desfecho de cada mensagem aceita pela porta unica do Agente financeiro",
+    # venda_registrada | venda_duplicada | eco_do_agente | nao_e_anuncio | sem_valor |
+    # varias_modelos | nome_desconhecido | nome_ambiguo | pergunta_de_pagamento |
+    # pagamento_absorvido | pagamento_ambiguo | pagamento_sem_venda_certa | venda_corrigida |
+    # venda_anulada | correcao_aplicada | correcao_sem_efeito | correcao_ambigua | correcao_duplicada |
+    # delecao_sem_venda | fechamento_postado | cadastro_atualizado | cadastro_sem_efeito |
+    # cadastro_de_terceiro | cobranca_registrada | cobranca_duplicada | cobranca_anulada
+    # `cobranca_*` (ticket 08) e o eixo do DEBITO da modelo, e nao receita: ele conta aqui porque a
+    # serie e "o que a porta fez com a mensagem", mas nada dele entra na conta de venda. Volume
+    # esperado: unidades por semana (a agencia cobra o anuncio). `cobranca_registrada` disparando
+    # em volume de anuncio significa a allowlist de rubricas pegando conversa — divida inventada no
+    # nome da modelo, que e o erro mais caro deste ticket.
+    # `pagamento_ambiguo` e a forma dita sem dono: o agente devolveu "em qual?" em vez de escrever
+    # na venda errada. Subir junto com `sem_forma` no Fechamento significa fila comprida demais
+    # para o grupo desempatar de cabeca — o remedio ali e a cobranca da manha, nao mais pergunta.
+    # `cadastro_*` (ticket 12) e a unica familia aqui que nunca produz fala no grupo: e por esta
+    # metrica que se ve o agente aprendendo (ou RECUSANDO aprender, em `cadastro_de_terceiro`) um
+    # dado cadastral — no grupo, esse trabalho e invisivel por design.
+    # `venda_registrada` conta LINHAS, nao mensagens: um anuncio de duas modelos incrementa duas
+    # vezes (ticket 04). `venda_duplicada` e o dedup cross-grupo trabalhando — normal quando a
+    # venda casada e anunciada nos dois grupos; anormal se passar a dominar `venda_registrada`,
+    # que ai e a chave de conteudo colidindo com venda legitima.
+    # `venda_corrigida`/`venda_anulada` (ticket 05) tambem contam LINHAS: sao o volume real de
+    # retrabalho do grupo. Subindo muito, o que esta errado e a LEITURA do anuncio, nao o grupo.
+    ["desfecho"],
+)
+
+# Audio do Grupo financeiro (spec 0005, ticket 06). Serie SEPARADA da `agente_transcricao_*` do
+# agente de venda de proposito: sao populacoes diferentes (o cliente manda audio no 1:1; aqui e a
+# modelo e os gestores) e misturar as duas esconderia justamente o que se quer ver — este agente
+# falha CALADO, entao um provider fora ou uma chave que sumiu no redeploy nao aparece em lugar
+# nenhum a nao ser aqui. `sem_transcritor` e config faltando (`OPENROUTER_API_KEY` vazio),
+# `sem_audio` e a midia que o webhook nao conseguiu, `vazio` e audio sem fala e `erro` e o
+# provider. Qualquer um deles crescendo = dado do grupo entrando pela metade.
+GRUPO_FINANCEIRO_AUDIO = Counter(
+    "barra_grupo_financeiro_audio_total",
+    "Desfecho da transcricao de audio na porta unica do Agente financeiro",
+    ["resultado"],  # ok | vazio | erro | sem_audio | sem_transcritor
+)
+
+# Rotina diaria da manha (spec 0005, ticket 10). O que se vigia aqui e o SILENCIO: `cobrou`
+# parado em zero com pendencia viva no painel significa que o cron nao rodou, que a instancia da
+# ProceX nao esta configurada ou que a entrega esta falhando — e como o agente e calado por
+# design, nada mais no sistema denuncia isso. `ja_falou` e o segundo disparo do mesmo dia batendo
+# na chave de idempotencia (esperado num redeploy); `falha` e entrega que nao saiu, e cada uma
+# delas e um grupo que ficou sem cobranca hoje.
+GRUPO_FINANCEIRO_ROTINA = Counter(
+    "barra_grupo_financeiro_rotina_total",
+    "Desfecho da rotina diaria da manha por Grupo financeiro",
+    ["resultado"],  # cobrou | silencio | ja_falou | falha
+)
+
+# Comprovante de transferencia (spec 0005, ticket 07). O que se vigia aqui e dinheiro que a modelo
+# ja mandou e o sistema NAO conseguiu conciliar: `nao_classificado` crescendo e comprovante ficando
+# retido — desde o ticket 08 isso inclui o Pix que quitaria a Cobranca da agencia E fecharia venda
+# pix aberta (mesmo valor nos dois eixos: o agente retem e pergunta em vez de escolher);
+# `ilegivel`/`erro`/`sem_leitor` e OCR falhando, e cada um deles e um pedido de reenvio que a
+# modelo recebe (ou nao recebe, no caso de `sem_leitor`) sem ninguem saber. `chave_desconhecida`
+# e contado a parte por ser o sinal de FRAUDE/erro de digitacao — ele nao trava nada, entao a
+# metrica e o unico lugar onde um pico aparece antes de virar prejuizo.
+GRUPO_FINANCEIRO_COMPROVANTES = Counter(
+    "barra_grupo_financeiro_comprovantes_total",
+    "Desfecho de cada imagem lida pela porta unica do Agente financeiro",
+    # fechamento | cobranca | nao_classificado | ilegivel | nao_e_comprovante |
+    # chave_desconhecida | chave_da_modelo | erro | sem_imagem | sem_leitor | duplicado | anulado
+    # `duplicado` e a MESMA foto de novo (reenvio/encaminhamento) e `anulado` e a foto apagada no
+    # grupo — os dois desfazem dinheiro que o extrato ja tinha dado por provado, e os dois eram
+    # silenciosos ate 14/08. Pico em qualquer um deles e a operacao corrigindo comprovante na mao.
+    # `chave_da_modelo` (ticket 12) e o destino que a casa RECONHECE como sendo da propria modelo:
+    # sai de dentro de `chave_desconhecida` para o pico de "chave fora da lista" voltar a
+    # significar so o que ele significava — erro de digitacao ou golpe.
+    # `cobranca` (ticket 08) e o Pix que quitou uma Cobranca da agencia: ele NAO passa por
+    # `chave_desconhecida`, porque o destino de uma cobranca e a agencia — fora da lista da casa
+    # por definicao. A flag continua na linha do comprovante, para o painel.
+    ["resultado"],
 )
 
 
