@@ -7,11 +7,18 @@ não pode reaparecer campo de tracing morto/duplicado em `Settings`, e o que exi
 """
 
 import os
+from datetime import UTC, datetime
 
 import pytest
 
 from barra.core import tracing
 from barra.settings import Settings
+
+# A tarifa horária do DeepSeek entrou em 2026-08-16 16:00 UTC. Preço de modelo no Langfuse é
+# estático, então o que é registrado DEPENDE do momento — e teste que lê o relógio de verdade
+# muda de resposta sozinho. Fixamos os dois lados.
+ANTES_DA_VIGENCIA = datetime(2026, 8, 10, 12, 0, tzinfo=UTC)
+DEPOIS_DA_VIGENCIA = datetime(2026, 8, 20, 12, 0, tzinfo=UTC)
 
 
 def test_settings_nao_tem_campo_de_tracing_morto() -> None:
@@ -102,13 +109,13 @@ def test_registrar_modelos_langfuse_cria_definicoes(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(langfuse, "get_client", lambda: _Client(), raising=False)
     monkeypatch.setattr(tracing, "_LANGFUSE_HANDLER", object(), raising=False)
 
-    tracing.registrar_modelos_langfuse(modelos_para_langfuse())
+    tracing.registrar_modelos_langfuse(modelos_para_langfuse(DEPOIS_DA_VIGENCIA))
 
     por_nome = {c["model_name"]: c for c in criados}
     assert {"deepseek-v4-flash"} <= set(por_nome)
     ds = por_nome["deepseek-v4-flash"]
-    assert ds["input_price"] == 0.14 / 1_000_000
-    assert ds["output_price"] == 0.28 / 1_000_000
+    assert ds["input_price"] == 0.22 / 1_000_000  # off-peak da tarifa horaria
+    assert ds["output_price"] == 0.66 / 1_000_000
     assert "deepseek-chat" in str(ds["match_pattern"])  # alias legado coberto
 
 
@@ -127,10 +134,24 @@ def test_registrar_modelos_langfuse_noop_sem_handler(monkeypatch: pytest.MonkeyP
 
 def test_modelos_para_langfuse_deriva_das_tabelas_de_preco() -> None:
     """Anti-drift: os preços registrados no Langfuse DERIVAM das tabelas `PRECO_*` de `_custo`
-    (fonte única) — mexeu na tarifa, o registro acompanha, sem número duplicado."""
+    (fonte única) — mexeu na tarifa, o registro acompanha, sem número duplicado.
+
+    Os DOIS lados da vigência entram, com o momento fixado: a tarifa horária do DeepSeek passou a
+    valer em 2026-08-16 16:00 UTC e, sem fixar, este teste trocava de resposta sozinho ao cruzar a
+    data (foi o que aconteceu — dois testes verdes viraram vermelhos sem commit nenhum).
+    """
     from barra.agente import _custo
 
-    modelos = {m["model_name"]: m for m in _custo.modelos_para_langfuse()}
-    ds = modelos["deepseek-v4-flash"]
-    assert ds["input_price"] == _custo.PRECO_DEEPSEEK_USD_PER_MTOK["input"] / 1_000_000
-    assert ds["output_price"] == _custo.PRECO_DEEPSEEK_USD_PER_MTOK["output"] / 1_000_000
+    antes = {m["model_name"]: m for m in _custo.modelos_para_langfuse(ANTES_DA_VIGENCIA)}
+    ds_antes = antes["deepseek-v4-flash"]
+    assert ds_antes["input_price"] == _custo.PRECO_DEEPSEEK_USD_PER_MTOK["input"] / 1_000_000
+    assert ds_antes["output_price"] == _custo.PRECO_DEEPSEEK_USD_PER_MTOK["output"] / 1_000_000
+
+    # Depois da virada vale o OFF-PEAK, nunca o pico: um preço estático que superestimasse cobraria
+    # a mais em TODA generation fora da janela cara (docstring de `modelos_para_langfuse`).
+    depois = {m["model_name"]: m for m in _custo.modelos_para_langfuse(DEPOIS_DA_VIGENCIA)}
+    ds_depois = depois["deepseek-v4-flash"]
+    esperado = _custo.PRECO_DEEPSEEK_OFF_PEAK_USD_PER_MTOK
+    assert ds_depois["input_price"] == esperado["input"] / 1_000_000
+    assert ds_depois["output_price"] == esperado["output"] / 1_000_000
+    assert ds_depois["input_price"] != _custo.PRECO_DEEPSEEK_PEAK_USD_PER_MTOK["input"] / 1_000_000

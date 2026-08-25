@@ -11,6 +11,7 @@ Cron:
   - fluxo_drift (sensor de deriva de fluxo; observacional, default off): segunda 04:00
   - rollback_watch (gatilhos objetivos de rollback do piloto; alerta dev): diário 05:00
   - digest_semanal (resumo diário pro Fernando no grupo de Coordenação): diário 12:00, retenta 15:00/18:00
+  - rotina_financeira (cobrança consolidada da manhã no Grupo financeiro, spec 0005): diário 11:00 UTC (08:00 BRT)
   - canario (sonda de entrega fim-a-fim Evolution->WhatsApp->webhook; default off): a cada canario_intervalo_min
 
 Idempotência: dedupe_key = (conversa_id, turno_id, chunk_idx) consultada antes do envio.
@@ -49,6 +50,7 @@ from barra.workers.pix import validar_pix
 from barra.workers.reconciliacao import reconciliar_cards_escalada
 from barra.workers.revisao_baixo_score import coletar_baixo_score
 from barra.workers.rollback_watch import vigiar_gatilhos_rollback
+from barra.workers.rotina_financeira import cobrar_pendencias_da_manha
 from barra.workers.timeouts import (
     aplicar_timeout_interno,
     aplicar_timeout_longo,
@@ -159,6 +161,16 @@ async def cron_digest_semanal(ctx: dict[str, Any]) -> int:
         return 0
     async with pool.connection() as conn:
         return await enviar_digest_semanal(conn, evolution, settings)
+
+
+async def cron_rotina_financeira(ctx: dict[str, Any]) -> int:
+    pool = ctx.get("db_pool")
+    evolution = ctx.get("evolution")
+    settings = ctx.get("settings")
+    if pool is None or evolution is None or settings is None:
+        return 0
+    async with pool.connection() as conn:
+        return await cobrar_pendencias_da_manha(conn, evolution, settings)
 
 
 async def cron_rollback_watch(ctx: dict[str, Any]) -> int:
@@ -330,6 +342,12 @@ class WorkerSettings:
         cron(cron_fluxo_drift, name="fluxo_drift", weekday="mon", hour={4}, minute={0}),
         # Coletor de turnos reprovados → dataset de regressão (observacional, flag OFF): diário 04:30.
         cron(cron_baixo_score, name="baixo_score", hour={4}, minute={30}),
+        # Rotina diaria da manha do Agente financeiro (spec 0005): 11:00 UTC = 08:00 BRT, dentro
+        # da janela da manha do grupo. UM disparo por dia e nao tres como o digest: quem garante
+        # "uma mensagem por grupo por dia" e a chave de idempotencia no log de origem, e um
+        # segundo disparo so viraria `ja_falou` — a cobranca perdida por Evolution fora volta
+        # INTEIRA amanha, porque pendencia e derivada da venda e nao se consome.
+        cron(cron_rotina_financeira, name="rotina_financeira", hour={11}, minute={0}),
         # Vigia dos gatilhos de rollback do piloto (janela 7d, alerta dev): diário 05:00 UTC.
         cron(cron_rollback_watch, name="rollback_watch", hour={5}, minute={0}),
         # Digest diário pro Fernando no grupo de Coordenação: 12:00 UTC (09:00 BRT), com duas

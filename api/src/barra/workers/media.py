@@ -10,12 +10,11 @@
 """
 
 import asyncio
-import base64
 import json
 import logging
 from datetime import timedelta
 from time import perf_counter
-from typing import Any, cast
+from typing import Any
 from uuid import UUID
 
 from openai import APIError, AsyncOpenAI
@@ -30,6 +29,13 @@ from barra.core.metrics import (
     TRANSCRICAO_RESULTADO,
 )
 from barra.core.redis import LockBusy, adquirir_lock
+from barra.core.stt import (
+    MODELO_STT_PADRAO,
+    PROMPT_STT,
+    SEM_FALA,
+    formato_por_nome,
+)
+from barra.core.stt import transcrever as transcrever_bytes
 
 # `webhook.despacho` e' quem sabe QUANDO o turno deferido acorda — e o TTL do sinal de
 # transcricao tem de derivar disso. Import de topo e' seguro: despacho so depende de
@@ -49,38 +55,15 @@ logger = logging.getLogger(__name__)
 # em mensagens.conteudo (06 §1.5) — o `_falha_definitiva` chama-se a partir do `except` final.
 _AUDIO_PLACEHOLDER = "[audio que nao consegui ouvir]"
 
-# Modelo de STT quando `settings.openrouter_model_audio_transcribe` nao vem do Env (o compose
-# repassa a var e ela chega VAZIA se o Portainer nao a define) — mesmo padrao do vision em pix.py.
-# Gemini 3.1 Flash Lite escolhido por bancada com os 2 audios reais do piloto (24/07), 3 rodadas
-# por modelo: R$0,0016/audio, 1,7s e saida IDENTICA nas 3 rodadas. Os dois eixos que decidiram:
-#  - fidelidade em entidade nomeada: capta o vocativo "Tati" (o cliente chamando a modelo, que se
-#    chama Tatiane) onde a familia 2.5 ouve "ta" — proxy do que mais importa em audio de venda
-#    (nome, valor, horario). A referencia forte diverge no ponto (2.5-pro le "ta", 3.1-pro le
-#    "Tati"), mas o contexto da conversa decide a favor de "Tati".
-#  - ESTABILIDADE: 3.5-flash-lite devolveu 3 transcricoes DIFERENTES em 3 rodadas do mesmo audio
-#    ("Claudi"/"Claudio I"/"Claudio ai") mesmo com temperature=0 — descartado apesar de barato.
-# Descartados tambem: 3.5-flash e 3.6-flash (4,5s, ~R$0,033 — 20x mais caro por ganho nenhum),
-# gpt-audio-mini e voxtral (recusam ogg/opus, 400 do provider).
-_MODELO_STT_PADRAO = "google/gemini-3.1-flash-lite"
-
-# O modelo de STT do OpenRouter e' um chat multimodal, nao um endpoint de transcricao: sem
-# instrucao firme ele COMENTA o audio ("o audio diz que...") ou traduz. O marcador de silencio
-# evita que ele invente fala onde nao ha (audio mudo/ruido) -- vira falha definitiva no caller.
-_SEM_FALA = "(sem fala)"
-_PROMPT_STT = (
-    "Transcreva literalmente este audio em portugues do Brasil. "
-    "Responda APENAS com a transcricao, sem aspas, sem comentarios, sem traduzir. "
-    f"Se nao houver fala audivel, responda exatamente: {_SEM_FALA}"
-)
-
-# `format` do content part `input_audio`, derivado da extensao do objeto no MinIO (o WhatsApp
-# manda ogg/opus; mp3/m4a aparecem em audio encaminhado). Desconhecido -> ogg, o caso dominante.
-_FORMATO_AUDIO: dict[str, str] = {".ogg": "ogg", ".mp3": "mp3", ".m4a": "m4a", ".wav": "wav"}
-
-
-def _formato_audio(object_key: str) -> str:
-    _, _, ext = object_key.rpartition(".")
-    return _FORMATO_AUDIO.get(f".{ext.lower()}", "ogg")
+# O QUE se pede ao provider (prompt, modelo default, formato, o marcador de "sem fala") mora em
+# `core/stt.py` desde a spec 0005 §ticket 06: o Agente financeiro transcreve o mesmo audio de
+# WhatsApp por outro caminho (sincrono, na porta unica, sem MinIO), e dois prompts de STT
+# divergindo em silencio e como um dos dois passa a traduzir sem ninguem notar. O que continua
+# AQUI e o que e deste job: MinIO, custo, metrica, retry do ARQ e o placeholder de falha.
+_MODELO_STT_PADRAO = MODELO_STT_PADRAO
+_SEM_FALA = SEM_FALA
+_PROMPT_STT = PROMPT_STT
+_formato_audio = formato_por_nome
 
 
 # --- Aviso de imagem que chega logo DEPOIS do slot reservado -----------------------------------
@@ -574,27 +557,12 @@ async def transcrever_audio(
     #    timeout=60 + max_retries=3 no startup; estouros finais (APIError 5xx persistente) sobem
     #    como excecao e o ARQ retenta o job inteiro.
     modelo_stt = settings.openrouter_model_audio_transcribe or _MODELO_STT_PADRAO
-    # `cast`: o TypedDict do SDK tipa `input_audio.format` como Literal["wav","mp3"] (o que a
-    # OpenAI aceita), mas o OpenRouter aceita ogg/opus — o formato do WhatsApp. O wire e' JSON:
-    # o campo viaja igual; so a anotacao do SDK e' estreita demais para este provider.
-    conteudo_stt = cast(
-        Any,
-        [
-            {"type": "text", "text": _PROMPT_STT},
-            {
-                "type": "input_audio",
-                "input_audio": {
-                    "data": base64.standard_b64encode(audio_bytes).decode("ascii"),
-                    "format": _formato_audio(object_key),
-                },
-            },
-        ],
-    )
     try:
-        resposta = await audio_client.chat.completions.create(
-            model=modelo_stt,
-            messages=[{"role": "user", "content": conteudo_stt}],
-            temperature=0,
+        transcricao = await transcrever_bytes(
+            audio_client,
+            audio_bytes,
+            formato=_formato_audio(object_key),
+            modelo=modelo_stt,
         )
     except APIError:
         logger.exception("transcricao_provider_erro mensagem_id=%s", mensagem_id)
@@ -605,11 +573,10 @@ async def transcrever_audio(
     # CUSTO-02: observa o custo ANTES de checar o conteudo -- transcricao vazia tambem queimou
     # tokens. Label = nome do modelo de STT (mesmo criterio do chat/vision).
     AGENTE_CUSTO_STT_BRL.labels(modelo_stt).observe(
-        calcular_custo_stt_brl(getattr(resposta, "usage", None), settings.usd_brl_cotacao)
+        calcular_custo_stt_brl(transcricao.usage, settings.usd_brl_cotacao)
     )
-    escolhas = getattr(resposta, "choices", None) or []
-    texto = (escolhas[0].message.content or "").strip() if escolhas else ""
-    if not texto or _SEM_FALA in texto.lower():
+    texto = transcricao.texto
+    if not texto:
         # Audio sem fala (ou modelo devolvendo vazio/recusa): nao ha transcricao a entregar --
         # mesmo desfecho do retry esgotado, canned "me manda por escrito" (06 §1.5).
         logger.warning("transcricao_vazia mensagem_id=%s modelo=%s", mensagem_id, modelo_stt)

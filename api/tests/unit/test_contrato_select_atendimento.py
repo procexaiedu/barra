@@ -83,14 +83,21 @@ def test_bloqueios_recortam_por_sobreposicao_nao_por_inicio() -> None:
     comecou, e com o predicado antigo esse estado nunca casava.
     """
     fonte = FONTE.read_text(encoding="utf-8")
-    query = re.search(
-        r"SELECT inicio, fim\s+FROM barravips\.bloqueios(.*?)\"\"\"", fonte, re.S
-    )
+    query = re.search(r"SELECT b\.inicio,(.*?)\"\"\"", fonte, re.S)
     assert query is not None, "query de bloqueios nao encontrada"
     corpo = query.group(1)
 
-    assert "fim >" in corpo, "o recorte tem de ser por SOBREPOSICAO (`fim > agora`)"
-    assert "inicio >=" not in corpo, (
+    assert "b.fim >" in corpo, "o recorte tem de ser por SOBREPOSICAO (`fim > agora`)"
+    assert "b.inicio >=" not in corpo, (
         "`inicio >= agora` esconde o bloqueio EM CURSO da agenda inteira — a IA passa a oferecer "
         "horario ocupado."
+    )
+    # Emenda ADR 0025 (2026-08-14): o tipo do vizinho decide o gap ao redor dele
+    # (`agenda_buffer_externo_min` para o externo). Sem a coluna no SELECT, `proximo_livre`,
+    # `janelas_livres` e `horario_minimo` publicam `fim + 30` para um externo que a reserva so
+    # aceita em `fim + 60` — e a IA reoferece em loop a hora que ela mesma recusa. E a mesma
+    # familia de bug do recorte acima: dado que some do SELECT nao levanta erro nenhum.
+    assert "tipo_atendimento" in corpo, (
+        "o SELECT de bloqueios tem de trazer o tipo (COALESCE do bloqueio com o atendimento): sem "
+        "ele o pre-calculo do prompt ignora o deslocamento e diverge do gate da reserva."
     )
