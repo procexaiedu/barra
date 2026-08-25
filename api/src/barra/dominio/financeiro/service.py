@@ -29,6 +29,7 @@ from barra.dominio.financeiro.schemas import (
     ComissoesPagamentosListaResponse,
     ComissoesPorVendedorResponse,
     ComprovanteUploadResponse,
+    DivergenciaDoFechamento,
     FinanceiroResumo,
     FinanceiroResumoResponse,
     FinanceiroSerieResponse,
@@ -37,13 +38,20 @@ from barra.dominio.financeiro.schemas import (
     PreencherRepasseRetroativoBody,
     PreencherRepasseRetroativoResponse,
     ReceitaContextoResponse,
+    ReceitaDasDuasFontes,
     ReceitasListaResponse,
     RepassePagoCriar,
     RepassePagoPatch,
     RepassePagoResponse,
     RepassesPagamentosListaResponse,
     RepassesPorModeloResponse,
+    VendaRegistradaLinha,
+    VendasRegistradasListaResponse,
 )
+from barra.dominio.grupo_financeiro import repo as grupo_financeiro_repo
+from barra.dominio.grupo_financeiro.modelos import VendaNoPainel
+from barra.dominio.grupo_financeiro.pendencia import estado_de_conciliacao, pendencias_da_venda
+from barra.dominio.grupo_financeiro.service import extratos_das_modelos
 
 # =============================================================================
 # Resumo
@@ -70,6 +78,13 @@ async def montar_resumo(
 
     imp_contagem, imp_bruto = await repo.importados_sem_data(conn, modelo_ids)
 
+    fontes = await _receita_das_duas_fontes(conn, resumo, janela, modelo_ids)
+    fontes_ant = (
+        await _receita_das_duas_fontes(conn, resumo_ant, janela_ant, modelo_ids)
+        if resumo_ant is not None and janela_ant is not None
+        else None
+    )
+
     return FinanceiroResumoResponse(
         filtro_aplicado=filtro_aplicado_dict(periodo, janela, modelo_ids),
         janela_comparacao=(
@@ -80,6 +95,33 @@ async def montar_resumo(
         resumo=resumo,
         resumo_anterior=resumo_ant,
         importados_sem_data=ImportadosSemData(contagem=imp_contagem, valor_bruto_brl=imp_bruto),
+        receita_das_duas_fontes=fontes,
+        receita_das_duas_fontes_anterior=fontes_ant,
+    )
+
+
+async def _receita_das_duas_fontes(
+    conn: AsyncConnection,
+    resumo: FinanceiroResumo,
+    janela: Janela,
+    modelo_ids: list[UUID] | None,
+) -> ReceitaDasDuasFontes:
+    """A projecao de atendimentos `Fechado` (ADR-0011) + as Vendas registradas (ADR-0043).
+
+    Soma pura: as duas fontes sao disjuntas por construcao (o Grupo financeiro nunca fabrica
+    Atendimento nem Cliente), entao nao ha o que deduplicar. Com `atendimentos` vazio — o mundo de
+    producao hoje — o total e exatamente a segunda fonte, que e o ponto do ADR-0043.
+    """
+    contagem, total_vendas = await grupo_financeiro_repo.receita_registrada(
+        conn, de=janela.de, ate=janela.ate, modelo_ids=modelo_ids
+    )
+    registrado = round(float(total_vendas), 2)
+    return ReceitaDasDuasFontes(
+        atendimentos_fechados_brl=resumo.valor_bruto_brl,
+        atendimentos_fechados_total=resumo.fechamentos_total,
+        vendas_registradas_brl=registrado,
+        vendas_registradas_total=contagem,
+        total_brl=round(resumo.valor_bruto_brl + registrado, 2),
     )
 
 
@@ -147,6 +189,84 @@ async def montar_contexto_receita(
     if ctx is None:
         raise NaoEncontrado("Receita")
     return ctx
+
+
+# =============================================================================
+# Vendas registradas (ADR-0043) — a segunda fonte, listada para auditoria
+# =============================================================================
+
+
+async def montar_vendas_registradas(
+    conn: AsyncConnection,
+    *,
+    periodo: str,
+    janela: Janela,
+    modelo_ids: list[UUID] | None,
+    incluir_anuladas: bool,
+    limit: int,
+    cursor_iso: str | None,
+) -> VendasRegistradasListaResponse:
+    """A lista + as divergencias das modelos que aparecem nela.
+
+    As duas leituras tem recortes DIFERENTES de proposito: a lista respeita a janela do painel
+    (quem olha esta perguntando por um periodo), a divergencia ignora janela porque o Fechamento e
+    saldo corrente continuo — recortar a conferencia por mes faria um comprovante sem par de julho
+    desaparecer do painel em agosto, que e exatamente quando ele vira problema.
+    """
+    cursor = _decodificar_cursor_pagamento(cursor_iso) if cursor_iso else None
+    vendas, proximo = await grupo_financeiro_repo.listar_vendas_no_painel(
+        conn,
+        de=janela.de,
+        ate=janela.ate,
+        modelo_ids=modelo_ids,
+        incluir_anuladas=incluir_anuladas,
+        limit=limit,
+        cursor=cursor,
+    )
+    nomes = {v.venda.modelo_id: v.modelo_nome for v in vendas}
+    extratos = await extratos_das_modelos(conn, list(nomes))
+    return VendasRegistradasListaResponse(
+        filtro_aplicado=filtro_aplicado_dict(periodo, janela, modelo_ids),
+        items=[_linha_de_venda_registrada(v) for v in vendas],
+        next_cursor=_codificar_cursor_pagamento(proximo) if proximo else None,
+        divergencias=[
+            DivergenciaDoFechamento(
+                modelo_id=modelo_id,
+                modelo_nome=nomes[modelo_id],
+                tipo=d.tipo,
+                valor=d.valor,
+                data=d.data,
+                comprovante_id=d.comprovante_id,
+            )
+            for modelo_id, extrato in extratos.items()
+            for d in extrato.divergencias
+        ],
+    )
+
+
+def _linha_de_venda_registrada(linha: VendaNoPainel) -> VendaRegistradaLinha:
+    """Entidade -> DTO. O estado de conciliacao e as pendencias saem do DOMINIO (`pendencia.py`),
+    nunca de um `if` daqui: a mesma venda tem que estar no mesmo pe na linha do painel e na
+    cobranca que a rotina da manha posta no grupo."""
+    venda = linha.venda
+    return VendaRegistradaLinha(
+        id=venda.id,
+        modelo_id=venda.modelo_id,
+        modelo_nome=linha.modelo_nome,
+        data=venda.data,
+        valor=venda.valor,
+        cliente_nome=venda.cliente_nome,
+        local_atendimento=venda.local_atendimento,
+        duracao_minutos=venda.duracao_minutos,
+        forma_pagamento=venda.forma_pagamento,
+        conciliacao=estado_de_conciliacao(venda),
+        pendencias=[p.tipo for p in pendencias_da_venda(venda)],
+        comprovante_id=venda.comprovante_id,
+        chave_pix_desconhecida=linha.chave_desconhecida,
+        chave_pix_destino=linha.chave_destino,
+        anulada_em=venda.anulada_em.isoformat() if venda.anulada_em else None,
+        mensagem_id=venda.mensagem_id,
+    )
 
 
 def _codificar_cursor_receita(cursor: tuple[datetime, UUID]) -> str:

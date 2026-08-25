@@ -35,6 +35,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { api } from "@/lib/api"
 import { formatTempoRelativo, formatBRL, formatData, formatHorario, formatRotulo } from "@/lib/formatters"
 import { motivoExibido, sinaisParaTipo } from "@/components/atendimentos/utils"
+import { lerSuspeita } from "@/components/pix/utils"
 import { cn } from "@/lib/utils"
 import type { CardDestaque, IaPausadaMotivo } from "@/tipos/painel"
 
@@ -929,13 +930,20 @@ function SecaoPix({
         {comprovante.motivo_em_revisao && (
           <DefRow
             label="Motivo em revisão"
-            value={comprovante.motivo_em_revisao}
+            // O backend carimba o motivo canônico na frente da prosa (ticket 07). Mostrar o
+            // rótulo + o detalhe, e não a string crua, evita expor o slug ao operador.
+            value={motivoDaRevisao(comprovante.motivo_em_revisao)}
             warn
           />
         )}
       </DefinitionList>
     </SecaoBloco>
   )
+}
+
+function motivoDaRevisao(motivoEmRevisao: string): string {
+  const { rotulo, detalhe, motivo } = lerSuspeita(motivoEmRevisao)
+  return motivo ? `${rotulo} — ${detalhe}` : detalhe
 }
 
 function SecaoComprovanteImagem({ pixUrl }: { pixUrl: string | null }) {

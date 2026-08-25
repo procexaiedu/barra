@@ -1,7 +1,9 @@
 // Tipos do Módulo Financeiro (ADR 0011). Espelham os schemas Pydantic em
 // `api/src/barra/dominio/financeiro/schemas.py`.
 
-import type { FiltroAplicado, JanelaComparacao } from "./dashboard"
+import type { FiltroAplicado, JanelaComparacao, ReceitaDasDuasFontes } from "./dashboard"
+
+export type { ReceitaDasDuasFontes }
 
 export type FormaPagamentoRepasse = "pix" | "dinheiro" | "outro"
 export type FormaPagamentoReceita = "pix" | "dinheiro" | "cartao" | "outro"
@@ -31,6 +33,68 @@ export interface FinanceiroResumoResponse {
   resumo: FinanceiroResumo
   resumo_anterior: FinanceiroResumo | null
   importados_sem_data: ImportadosSemData
+  receita_das_duas_fontes: ReceitaDasDuasFontes
+  receita_das_duas_fontes_anterior: ReceitaDasDuasFontes | null
+}
+
+// ---------- Vendas registradas (ADR-0043 / spec 0005) ----------
+
+/**
+ * As CINCO formas da Venda registrada (ADR-0046 §4): "cartão" deixou de ser uma forma só e virou
+ * débito, crédito e link — cada uma concilia no seu extrato. Espelha
+ * `FormaPagamentoVendaRegistrada` / `FORMAS_DA_VENDA_REGISTRADA` do backend e o CHECK de
+ * `vendas_registradas.forma_pagamento`. Ficou em `"pix" | "dinheiro"` depois da v2, enquanto o
+ * `ConferenciaPorForma` já mostrava as cinco.
+ */
+export type FormaPagamentoVendaRegistrada = "pix" | "dinheiro" | "debito" | "credito" | "link"
+export type TipoDePendenciaVenda = "forma_pagamento" | "comprovante"
+export type EstadoDeConciliacaoVenda =
+  | "anulada"
+  | "aguardando_forma"
+  | "em_especie"
+  | "aguardando_comprovante"
+  | "conciliada"
+export type TipoDeDivergenciaFechamento =
+  | "comprovante_sem_par"
+  | "credito_da_modelo"
+  | "pix_sem_venda_em_pix"
+  | "venda_comprovada_a_menor"
+
+/** Uma venda anunciada no Grupo financeiro. Somente leitura: corrige-se no grupo. */
+export interface VendaRegistradaLinha {
+  id: string
+  modelo_id: string
+  modelo_nome: string
+  data: string // AAAA-MM-DD
+  valor: number
+  cliente_nome: string | null // texto livre: nunca vira linha em `clientes`
+  local_atendimento: string | null
+  duracao_minutos: number | null
+  forma_pagamento: FormaPagamentoVendaRegistrada | null
+  conciliacao: EstadoDeConciliacaoVenda
+  pendencias: TipoDePendenciaVenda[]
+  comprovante_id: string | null
+  chave_pix_desconhecida: boolean
+  chave_pix_destino: string | null
+  anulada_em: string | null
+  mensagem_id: string
+}
+
+/** Divergência do Fechamento — da MODELO (conferência), não de uma venda. */
+export interface DivergenciaDoFechamento {
+  modelo_id: string
+  modelo_nome: string
+  tipo: TipoDeDivergenciaFechamento
+  valor: number
+  data: string | null
+  comprovante_id: string | null
+}
+
+export interface VendasRegistradasListaResponse {
+  filtro_aplicado: FiltroAplicado
+  items: VendaRegistradaLinha[]
+  next_cursor: string | null
+  divergencias: DivergenciaDoFechamento[]
 }
 
 // ---------- Receitas ----------

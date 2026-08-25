@@ -6,6 +6,8 @@ import {
   ListChecks,
   Users,
   IdCard,
+  Headset,
+  KeyRound,
   ChartLine,
   Wallet,
   Bot,
@@ -41,6 +43,13 @@ export const grupos: GrupoNavegacao[] = [
     items: [
       { href: "/clientes", label: "Clientes", icon: Users },
       { href: "/modelos", label: "Modelos", icon: IdCard },
+      // Ao lado de Modelos por pedido explícito (ADR-0048): é onde o percentual de comissão do
+      // telefonista é alterado. "Telefonista" é o Vendedor no vocabulário do grupo financeiro.
+      { href: "/telefonistas", label: "Telefonistas", icon: Headset },
+      // O registro de "de quem e esta chave" (ADR-0049): e cadastro, e e onde o dono classifica
+      // a chave que apareceu num comprovante. Nao e o `chave_pix` da ficha da modelo — aquele e
+      // destino de REPASSE, e somar os dois sentidos faz o razao dobrar (ADR-0049 §3).
+      { href: "/chaves-pix", label: "Chaves Pix", icon: KeyRound },
     ],
   },
   {

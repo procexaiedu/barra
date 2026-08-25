@@ -160,7 +160,21 @@ export interface DashboardResumo {
   motivos_escalada: MotivosEscalada
   profissionais: ProfissionalRanking[]
   importados_sem_data: ImportadosSemData
+  /**
+   * Receita do período somando as DUAS fontes (ADR-0043): a projeção de atendimentos
+   * `Fechado` + as Vendas registradas nos Grupos financeiros. Bloco próprio, fora de
+   * `financeiro`, porque líquido e repasse só existem sobre snapshot de Atendimento.
+   */
+  receita_das_duas_fontes: ReceitaDasDuasFontes
   servidor_em: string
+}
+
+export interface ReceitaDasDuasFontes {
+  atendimentos_fechados_brl: number
+  atendimentos_fechados_total: number
+  vendas_registradas_brl: number
+  vendas_registradas_total: number
+  total_brl: number
 }
 
 export interface EscaladaCompletaLinha {

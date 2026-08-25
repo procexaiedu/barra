@@ -11,16 +11,17 @@ import type {
   ReceitasListaResponse,
   RepassesPagamentosListaResponse,
   RepassesPorModeloResponse,
+  VendasRegistradasListaResponse,
 } from "@/tipos/financeiro"
 
 type Status = "loading" | "success" | "error"
-type View = "geral" | "receitas" | "repasses"
+type View = "geral" | "receitas" | "vendas" | "repasses"
 
 const PERIODOS_VALIDOS: ReadonlySet<string> = new Set([
   "hoje", "7d", "30d", "mes", "tudo", "custom",
 ])
 const VIEWS_VALIDAS: ReadonlySet<string> = new Set([
-  "geral", "receitas", "repasses",
+  "geral", "receitas", "vendas", "repasses",
 ])
 
 // Itens por página em cada visualização. Hoje carrega menos porque o dia
@@ -43,6 +44,8 @@ export interface FiltrosFinanceiro {
   ate: string | null
   modelo_ids: string[]
   forma_pagamento: FormaPagamentoReceita | null
+  /** Vendas registradas: mostra também o que o grupo apagou (rastro). Off por padrão. */
+  incluir_anuladas: boolean
   view: View
 }
 
@@ -65,6 +68,7 @@ function parseFiltros(params: URLSearchParams): FiltrosFinanceiro {
     ate: periodoCustom ? ate : null,
     modelo_ids: params.getAll("modelo_id"),
     forma_pagamento: (params.get("forma_pagamento") as FormaPagamentoReceita | null) || null,
+    incluir_anuladas: params.get("incluir_anuladas") === "true",
     view,
   }
 }
@@ -84,6 +88,9 @@ function montarPath(
   if (recurso === "/receitas" && filtros.forma_pagamento) {
     params.set("forma_pagamento", filtros.forma_pagamento)
   }
+  if (recurso === "/vendas-registradas" && filtros.incluir_anuladas) {
+    params.set("incluir_anuladas", "true")
+  }
   if (opcoes?.limit) params.set("limit", String(opcoes.limit))
   if (opcoes?.cursor) params.set("cursor", opcoes.cursor)
   return `/v1/financeiro${recurso}?${params.toString()}`
@@ -98,6 +105,7 @@ function montarQueryString(filtros: FiltrosFinanceiro): string {
   }
   for (const id of filtros.modelo_ids) params.append("modelo_id", id)
   if (filtros.forma_pagamento) params.set("forma_pagamento", filtros.forma_pagamento)
+  if (filtros.incluir_anuladas) params.set("incluir_anuladas", "true")
   if (filtros.view !== "geral") params.set("view", filtros.view)
   const s = params.toString()
   return s ? `?${s}` : ""
@@ -116,10 +124,12 @@ export function useFinanceiro() {
   const [receitas, setReceitas] = useState<ReceitasListaResponse | null>(null)
   const [repasses, setRepasses] = useState<RepassesPorModeloResponse | null>(null)
   const [pagamentos, setPagamentos] = useState<RepassesPagamentosListaResponse | null>(null)
+  const [vendas, setVendas] = useState<VendasRegistradasListaResponse | null>(null)
   const [status, setStatus] = useState<Status>("loading")
   const [error, setError] = useState<string | null>(null)
   const [carregandoMaisReceitas, setCarregandoMaisReceitas] = useState(false)
   const [carregandoMaisPagamentos, setCarregandoMaisPagamentos] = useState(false)
+  const [carregandoMaisVendas, setCarregandoMaisVendas] = useState(false)
 
   const abortRef = useRef<AbortController | null>(null)
   const firstLoadDone = useRef(false)
@@ -153,6 +163,14 @@ export function useFinanceiro() {
             montarPath(filtros, "/receitas", { limit }),
             { signal: ctrl.signal },
           ).then(setReceitas),
+        )
+      }
+      if (filtros.view === "vendas") {
+        promises.push(
+          api<VendasRegistradasListaResponse>(
+            montarPath(filtros, "/vendas-registradas", { limit }),
+            { signal: ctrl.signal },
+          ).then(setVendas),
         )
       }
       if (filtros.view === "repasses") {
@@ -208,6 +226,52 @@ export function useFinanceiro() {
       setCarregandoMaisReceitas(false)
     }
   }, [receitas, filtros, limitAtual, carregandoMaisReceitas])
+
+  const carregarMaisVendas = useCallback(async () => {
+    if (!vendas?.next_cursor || carregandoMaisVendas) return
+    setCarregandoMaisVendas(true)
+    try {
+      const proximo = await api<VendasRegistradasListaResponse>(
+        montarPath(filtros, "/vendas-registradas", {
+          limit: limitAtual,
+          cursor: vendas.next_cursor,
+        }),
+      )
+      setVendas({
+        filtro_aplicado: proximo.filtro_aplicado,
+        items: [...vendas.items, ...proximo.items],
+        next_cursor: proximo.next_cursor,
+        // A divergência é da MODELO e ignora janela: a página nova pode trazer
+        // modelo que ainda não tinha aparecido, então as duas listas se somam.
+        // A chave é o `comprovante_id` quando ele existe — modelo+tipo+valor
+        // colapsaria duas transferências do MESMO valor para a MESMA modelo,
+        // que é justamente o caso de referência do domínio ("600 pix, 600 pix").
+        // Divergência sem comprovante (as agregadas: pix_sem_venda_em_pix
+        // e venda_comprovada_a_menor) é uma por modelo+tipo e cai no par
+        // modelo+tipo+valor+data.
+        divergencias: [
+          ...vendas.divergencias,
+          ...proximo.divergencias.filter(
+            (d) =>
+              !vendas.divergencias.some((j) =>
+                d.comprovante_id
+                  ? j.comprovante_id === d.comprovante_id
+                  : j.modelo_id === d.modelo_id &&
+                    j.tipo === d.tipo &&
+                    j.valor === d.valor &&
+                    j.data === d.data,
+              ),
+          ),
+        ],
+      })
+    } catch (e) {
+      const detail = e instanceof ApiError ? e.detail
+        : e instanceof Error ? e.message : "Erro desconhecido"
+      setError(detail)
+    } finally {
+      setCarregandoMaisVendas(false)
+    }
+  }, [vendas, filtros, limitAtual, carregandoMaisVendas])
 
   const carregarMaisPagamentos = useCallback(async () => {
     if (!pagamentos?.next_cursor || carregandoMaisPagamentos) return
@@ -282,6 +346,11 @@ export function useFinanceiro() {
     [aplicarFiltros, filtros]
   )
 
+  const setIncluirAnuladas = useCallback(
+    (incluir_anuladas: boolean) => aplicarFiltros({ ...filtros, incluir_anuladas }),
+    [aplicarFiltros, filtros]
+  )
+
   const setView = useCallback(
     (view: View) => aplicarFiltros({ ...filtros, view }),
     [aplicarFiltros, filtros]
@@ -298,18 +367,22 @@ export function useFinanceiro() {
     resumo,
     serie,
     receitas,
+    vendas,
     repasses,
     pagamentos,
     setPeriodoPreset,
     setPeriodoCustom,
     setModeloIds,
     setFormaPagamento,
+    setIncluirAnuladas,
     setView,
     refetch,
     // Paginação por cursor — UI esconde "carregar mais" quando next_cursor=null.
     carregarMaisReceitas,
+    carregarMaisVendas,
     carregarMaisPagamentos,
     carregandoMaisReceitas,
+    carregandoMaisVendas,
     carregandoMaisPagamentos,
     limitAtual,
     // helpers para o componente:

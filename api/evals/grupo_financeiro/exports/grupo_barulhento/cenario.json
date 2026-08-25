@@ -1,0 +1,26 @@
+{
+  "dona": "Larissa",
+  "elenco": {
+    "Larissa": [
+      "larissa",
+      "lari"
+    ],
+    "Juliana": [
+      "juliana",
+      "juju"
+    ]
+  },
+  "gestoras": [
+    "~ Duda"
+  ],
+  "chave_da_casa": "b2e77c40-3333-4a11-9f22-5566d0aa7788",
+  "nome_do_grupo": "Modelo Larissa/ financeiro",
+  "numero_da_modelo": "5521977773344",
+  "sobre": [
+    "O grupo como ele e no dia a dia: bom dia, figurinha, piada, combinado com cliente.",
+    "O que se mede aqui e o SILENCIO — quantas dessas o agente comenta sem ser chamado.",
+    "Tem tres armadilhas de proposito: o anuncio repetido (dedup), a chave Pix ditada pela",
+    "gestora (que NAO pode virar cadastro da modelo) e o valor solto '3 dias de anuncio deu 420'",
+    "logo antes da cobranca de verdade — o numero certo na mensagem errada."
+  ]
+}

@@ -5,6 +5,7 @@ import type {
   FinanceiroBloco,
   ImportadosSemData,
   KpisFechamentos,
+  ReceitaDasDuasFontes,
   SerieTemporalPonto,
 } from "@/tipos/dashboard"
 import { formatBRL } from "@/lib/formatters"
@@ -20,6 +21,9 @@ interface Props {
   onAbrirLista?: (tipo: TipoMetricaModal) => void
   serieLiquido?: SerieTemporalPonto[]
   importadosSemData?: ImportadosSemData
+  /** ADR-0043: receita das duas fontes. Sem ela o bloco mostra R$ 0,00 enquanto os
+   *  Grupos financeiros faturam todo dia (a IA de venda ainda não estreou). */
+  receitaDasDuasFontes?: ReceitaDasDuasFontes
 }
 
 interface LinhaWaterfallProps {
@@ -89,6 +93,7 @@ export function BlocoFinanceiro({
   onAbrirLista,
   serieLiquido,
   importadosSemData,
+  receitaDasDuasFontes,
 }: Props) {
   const total = Math.max(
     financeiro.valor_bruto_brl,
@@ -184,6 +189,21 @@ export function BlocoFinanceiro({
           </>
         ) : null}
       </p>
+
+      {receitaDasDuasFontes && receitaDasDuasFontes.vendas_registradas_total > 0 ? (
+        <p className="rounded-md bg-muted/50 px-3 py-2 text-xs text-text-muted ring-1 ring-border-subtle">
+          <span className="font-medium text-text-secondary">
+            + {formatBRL(receitaDasDuasFontes.vendas_registradas_brl)} em{" "}
+            {receitaDasDuasFontes.vendas_registradas_total} venda(s) registrada(s)
+          </span>{" "}
+          nos Grupos financeiros (ADR-0043) — receita da operação no período:{" "}
+          <span className="font-mono tabular-nums text-text-secondary">
+            {formatBRL(receitaDasDuasFontes.total_brl)}
+          </span>
+          . Ficam fora da decomposição acima porque repasse/líquido só existem sobre
+          atendimento fechado; a lista está em Financeiro › Vendas registradas.
+        </p>
+      ) : null}
 
       {importadosSemData && importadosSemData.contagem > 0 ? (
         <p className="rounded-md bg-muted/50 px-3 py-2 text-xs text-text-muted ring-1 ring-border-subtle">

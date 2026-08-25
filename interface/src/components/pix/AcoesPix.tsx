@@ -27,8 +27,10 @@ import {
   badgeForStatusPix,
   isPendente,
   isRejeitado,
+  lerSuspeita,
   motivoRejeicaoOptions,
-  motivoRevisaoLabel,
+  REJEICAO_PADRAO,
+  rejeicaoSugerida,
   statusItemPix,
 } from "./utils"
 
@@ -47,11 +49,26 @@ export function AcoesPix({
   onReabrir: (id: string) => Promise<void>
   onAbrirAtendimento?: () => void
 }) {
+  // A dúvida da máquina, no vocabulário único (ADR-0049 §5, ticket 07). Ela dita duas coisas:
+  // o rótulo que aparece no hero e o motivo de rejeição pré-selecionado — quem rejeita continua
+  // escolhendo, mas repetir a escolha a mão é a chance de a contagem de rejeição divergir da de
+  // suspeita por desatenção.
+  const suspeita = lerSuspeita(detalhe.pix.motivo_em_revisao)
+  const rejeicaoInicial = suspeita.motivo ? rejeicaoSugerida[suspeita.motivo] : REJEICAO_PADRAO
+
   const [dialog, setDialog] = useState<DialogAtivo>(null)
   const [submitting, setSubmitting] = useState(false)
-  const [motivo, setMotivo] = useState<MotivoRejeicao>("valor_incorreto")
+  const [motivo, setMotivo] = useState<MotivoRejeicao>(rejeicaoInicial)
   const [observacao, setObservacao] = useState("")
   const [erro, setErro] = useState<string | null>(null)
+  const [pixAnterior, setPixAnterior] = useState(detalhe.pix.id)
+
+  // Trocar de comprovante na lista re-sugere a rejeição do NOVO: sem isto o painel manteria a
+  // sugestão do anterior, que é pior do que não sugerir nada.
+  if (detalhe.pix.id !== pixAnterior) {
+    setPixAnterior(detalhe.pix.id)
+    setMotivo(rejeicaoInicial)
+  }
 
   const pendente = isPendente(detalhe.pix)
   const rejeitado = isRejeitado(detalhe.pix)
@@ -65,10 +82,7 @@ export function AcoesPix({
   const clienteLabel =
     detalhe.cliente.nome ?? formatTelefone(detalhe.cliente.telefone)
   const titularLabel = detalhe.pix.titular_extraido
-  const motivoRevisao =
-    detalhe.pix.motivo_em_revisao && detalhe.pix.motivo_em_revisao in motivoRevisaoLabel
-      ? motivoRevisaoLabel[detalhe.pix.motivo_em_revisao]
-      : null
+  const motivoRevisao = suspeita.rotulo || null
 
   const abrir = (proximo: DialogAtivo) => {
     setErro(null)
@@ -109,7 +123,7 @@ export function AcoesPix({
       toast.success("Pix rejeitado")
       setDialog(null)
       setObservacao("")
-      setMotivo("valor_incorreto")
+      setMotivo(rejeicaoInicial)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erro ao rejeitar Pix")
     } finally {
@@ -270,7 +284,10 @@ export function AcoesPix({
             </HeroBlock>
             <HeroBlock label={motivoRevisao ? "Motivo da revisão" : "Modelo"}>
               {motivoRevisao ? (
-                <span className="inline-flex items-center gap-1.5 text-sm text-state-handoff">
+                <span
+                  className="inline-flex items-center gap-1.5 text-sm text-state-handoff"
+                  title={suspeita.detalhe}
+                >
                   <RotateCcw size={13} strokeWidth={1.8} />
                   {motivoRevisao}
                 </span>

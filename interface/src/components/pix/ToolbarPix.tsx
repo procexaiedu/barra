@@ -8,10 +8,10 @@ import { SelectFiltro } from "@/components/filtros/SelectFiltro"
 import type { PeriodoSelecionado } from "@/tipos/filtros"
 import type {
   FiltroStatusPix,
-  MotivoRevisao,
+  MotivoDeSuspeita,
 } from "@/tipos/pix"
 import {
-  motivoRevisaoFiltroOptions,
+  motivoSuspeitaFiltroOptions,
   statusFiltroOptions,
 } from "./utils"
 
@@ -31,13 +31,13 @@ export function ToolbarPix({
   busca: string
   status: FiltroStatusPix
   modeloIds: string[]
-  motivo: MotivoRevisao | "todos"
+  motivo: MotivoDeSuspeita | "todos"
   periodo: PeriodoSelecionado
   loading: boolean
   onBuscaChange: (value: string) => void
   onStatusChange: (value: FiltroStatusPix) => void
   onModeloChange: (value: string[]) => void
-  onMotivoChange: (value: MotivoRevisao | "todos") => void
+  onMotivoChange: (value: MotivoDeSuspeita | "todos") => void
   onPeriodoChange: (value: PeriodoSelecionado) => void
 }) {
   if (loading) {
@@ -77,9 +77,9 @@ export function ToolbarPix({
       <SelectFiltro
         label="Motivo de revisão"
         value={motivo}
-        onChange={(value) => onMotivoChange(value as MotivoRevisao | "todos")}
+        onChange={(value) => onMotivoChange(value as MotivoDeSuspeita | "todos")}
       >
-        {motivoRevisaoFiltroOptions.map((item) => (
+        {motivoSuspeitaFiltroOptions.map((item) => (
           <option key={item.value} value={item.value}>{item.label}</option>
         ))}
       </SelectFiltro>

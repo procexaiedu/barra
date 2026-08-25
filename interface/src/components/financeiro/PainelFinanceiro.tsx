@@ -9,6 +9,7 @@ import type {
   FinanceiroResumoResponse,
   FinanceiroSerieDia,
   FinanceiroSerieResponse,
+  ReceitaDasDuasFontes,
 } from "@/tipos/financeiro"
 import { KpiCard } from "./KpiCard"
 import { StatusRepasses } from "./StatusRepasses"
@@ -120,6 +121,8 @@ export function PainelFinanceiro({
         </div>
       )}
 
+      <ReceitaDeDuasFontes fontes={resumo.receita_das_duas_fontes} />
+
       {/* Primários: 3 KPIs above-the-fold com sparkline.
           Líquido em primeiro (hero gold) — é o resultado da Elite Baby. */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
@@ -194,6 +197,50 @@ export function PainelFinanceiro({
         </div>
         <ChartMixForma itens={serie?.mix_forma_pagamento ?? []} />
       </div>
+    </div>
+  )
+}
+
+/**
+ * Receita da operação somando as DUAS fontes (ADR-0043). Fica FORA dos KPIs de cima
+ * de propósito: aqueles carregam líquido e repasse, que só existem sobre snapshot de
+ * Atendimento — a Venda registrada não tem nenhum (repasse/split ficam fora do
+ * sistema). Somá-la ali quebraria em silêncio a identidade líquido = bruto − repasse.
+ */
+function ReceitaDeDuasFontes({ fontes }: { fontes: ReceitaDasDuasFontes }) {
+  const plural = (n: number, s: string, p: string) => (n === 1 ? s : p)
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 rounded-lg border border-border bg-muted/30 px-4 py-3">
+      <div>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-text-muted">
+          Receita da operação · 2 fontes
+        </p>
+        <p className="font-mono text-xl font-semibold tabular-nums text-text-brand">
+          {formatBRL(fontes.total_brl)}
+        </p>
+      </div>
+      <dl className="flex flex-wrap gap-x-6 gap-y-1 text-[12px]">
+        <div>
+          <dt className="text-text-muted">Atendimentos fechados</dt>
+          <dd className="font-mono tabular-nums text-text-primary">
+            {formatBRL(fontes.atendimentos_fechados_brl)}{" "}
+            <span className="text-text-muted">
+              · {fontes.atendimentos_fechados_total}{" "}
+              {plural(fontes.atendimentos_fechados_total, "fechamento", "fechamentos")}
+            </span>
+          </dd>
+        </div>
+        <div>
+          <dt className="text-text-muted">Vendas registradas</dt>
+          <dd className="font-mono tabular-nums text-text-primary">
+            {formatBRL(fontes.vendas_registradas_brl)}{" "}
+            <span className="text-text-muted">
+              · {fontes.vendas_registradas_total}{" "}
+              {plural(fontes.vendas_registradas_total, "venda", "vendas")}
+            </span>
+          </dd>
+        </div>
+      </dl>
     </div>
   )
 }

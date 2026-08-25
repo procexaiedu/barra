@@ -25,6 +25,66 @@ class MensagemEvolution:
     caption: str | None = None
     media_base64: str | None = None
     media_mimetype: str | None = None
+    # Nome de exibição do autor (`pushName`). No 1:1 é redundante (o cliente é o telefone), mas em
+    # GRUPO é o único rótulo humano de quem falou: o `participant` pode vir `@lid` opaco e o Grupo
+    # financeiro (spec 0005) precisa saber que quem postou foi a Dani, o FEH ou a Parcerias.
+    push_name: str | None = None
+
+
+@dataclass(frozen=True)
+class DelecaoEvolution:
+    """Uma mensagem apagada para todos, como a plataforma conta (spec 0005, ticket 05).
+
+    So tres campos porque delecao nao tem conteudo: QUAL mensagem morreu, em QUE chat e QUEM
+    apagou. Nao e um `MensagemEvolution` de propósito — nao ha texto, tipo, midia nem quote, e
+    fingir que ha faria todo leitor de mensagem ter que se defender de um texto vazio.
+    """
+
+    evolution_message_id: str
+    remote_jid: str
+    participant: str | None = None
+
+
+@dataclass(frozen=True)
+class ReacaoEvolution:
+    """Uma reacao emoji sobre uma mensagem que ja existe — o ✅/❌ do telefonista (spec 0006).
+
+    Irma de `DelecaoEvolution` e pelo mesmo motivo: nao ha conteudo novo, o dado util e QUAL
+    mensagem recebeu QUAL emoji, de quem. `emoji` VAZIO nao e ausencia de dado: e a REMOCAO da
+    reacao, que e como a plataforma avisa que o ✅ saiu (e o gesto que o ticket 08 exige desfazer).
+
+    ⚠️ **A grafia do evento que produz este objeto ainda NAO foi capturada em producao** — ver
+    `GRAFIA_DO_GESTO_CONFIRMADA` e `extrair_gesto`. O TIPO nao depende da grafia; o preenchimento
+    dele, sim.
+    """
+
+    evolution_message_id: str
+    """A mensagem ALVO da reacao — a que ja estava no grupo, nunca a reacao em si."""
+    remote_jid: str
+    emoji: str = ""
+    participant: str | None = None
+    from_me: bool = False
+
+
+@dataclass(frozen=True)
+class EdicaoEvolution:
+    """Uma mensagem editada ("editada" do WhatsApp) — o quarto gesto do ADR-0044 §4.
+
+    Chega pelo mesmo `protocolMessage` da revogacao, com outro `type`: e literalmente o ramo em que
+    `extrair_delecao` desiste hoje ("protocolMessage de outros tipos (edicao...), que nao apagam
+    nada"). O dado util e QUAL mensagem mudou e para QUAL texto.
+
+    ⚠️ Mesma pendencia de grafia da `ReacaoEvolution`: o `type` numerico do edit e o lugar do texto
+    novo no envelope da EvoGo nao foram vistos ao vivo.
+    """
+
+    evolution_message_id: str
+    """A mensagem ALVO da edicao — a chave que ja esta no log de origem."""
+    remote_jid: str
+    texto: str = ""
+    """O texto DEPOIS da edicao."""
+    participant: str | None = None
+    from_me: bool = False
 
 
 @dataclass(frozen=True)
@@ -133,6 +193,7 @@ def adaptar_webhook_go(payload: dict[str, Any]) -> dict[str, Any]:
         )
         adaptado["event"] = "messages.upsert"
         adaptado["data"] = {
+            "pushName": info.get("PushName") or info.get("pushName"),
             "key": {
                 "id": info.get("ID") or info.get("Id"),
                 "remoteJid": chat,
@@ -168,6 +229,182 @@ def adaptar_webhook_go(payload: dict[str, Any]) -> dict[str, Any]:
     adaptado["event"] = ev_raw
     adaptado["data"] = data
     return adaptado
+
+
+def extrair_delecao(payload: dict[str, Any]) -> DelecaoEvolution | None:
+    """A plataforma esta avisando que uma mensagem foi APAGADA PARA TODOS? (spec 0005, ticket 05).
+
+    Duas grafias chegam pelo mesmo webhook e as duas significam a mesma coisa:
+
+    * evento proprio `messages.delete`, com a chave da mensagem morta no `data` (Evolution v2);
+    * `messages.upsert` carregando um `protocolMessage` de tipo `REVOKE` — que e como a EvoGo
+      (whatsmeow) entrega o revoke, ja normalizada por `adaptar_webhook_go`. Nesse formato o id
+      que interessa e o do ALVO (`protocolMessage.key.id`), nunca o do envelope: o envelope e uma
+      mensagem-de-sistema nova, com id proprio, que nunca virou nada no nosso banco.
+
+    Hoje so o `extrair_mensagem` (que devolve `None` para protocolMessage) ficava entre esse
+    evento e o lixo. Devolve `None` para todo o resto — inclusive para `protocolMessage` de outros
+    tipos (edicao de mensagem, sincronizacao de estado), que nao apagam nada.
+    """
+    evento = str(payload.get("event") or "").replace("_", ".").lower()
+    raw_data = payload.get("data")
+    if isinstance(raw_data, list):
+        # Algumas versoes entregam a delecao em lote; uma mensagem por evento e o caso normal e
+        # a primeira e a que interessa (a porta e chamada uma vez por evento).
+        raw_data = raw_data[0] if raw_data else None
+    data = raw_data if isinstance(raw_data, dict) else {}
+    raw_key = data.get("key")
+    key = raw_key if isinstance(raw_key, dict) else {}
+
+    remote_jid = key.get("remoteJid") or data.get("remoteJid")
+    participante = key.get("participant") or data.get("participant")
+
+    if evento in ("messages.delete", "message.delete", "messages.revoke"):
+        alvo = key.get("id") or data.get("id") or data.get("keyId") or data.get("messageId")
+    else:
+        raw_message = data.get("message")
+        message = raw_message if isinstance(raw_message, dict) else {}
+        raw_protocolo = message.get("protocolMessage")
+        protocolo = raw_protocolo if isinstance(raw_protocolo, dict) else {}
+        tipo = protocolo.get("type", protocolo.get("Type"))
+        if str(tipo).upper() not in ("REVOKE", "0"):
+            return None
+        raw_alvo = protocolo.get("key") or protocolo.get("Key")
+        chave_alvo = raw_alvo if isinstance(raw_alvo, dict) else {}
+        alvo = chave_alvo.get("id") or chave_alvo.get("ID")
+        participante = key.get("participant") or participante
+
+    if not alvo or not remote_jid:
+        return None
+    return DelecaoEvolution(
+        evolution_message_id=str(alvo),
+        remote_jid=str(remote_jid),
+        participant=str(participante) if participante else None,
+    )
+
+
+GRAFIA_DO_GESTO_CONFIRMADA = False
+"""O envelope real de REACAO e de EDICAO da EvoGo ja foi capturado em producao?
+
+`False` = nao, e por isso `extrair_gesto` devolve `None` para tudo. A borda continua exatamente
+como esta: reacao morre no gate explicito de `extrair_mensagem` e edicao morre no `extrair_delecao`
+(que so aceita `REVOKE`) — o comportamento que o agente de venda depende e o que o ticket 08 manda
+preservar para ele.
+
+Nao e um flag de produto e nao vira `settings`: e a marca de que a leitura abaixo foi escrita
+contra um payload **hipotetico**. Este projeto ja quebrou calado por contrato de evento inventado
+(vault: `deepseek_json_object_e_thinking_grafia`, `extracao_fronteira_llm_tool_perde_turno`), e um
+parser que "quase" acerta o envelope e pior que um que devolve None: ele entrega gesto com o id do
+ENVELOPE no lugar do id do ALVO, e o ✅ passa a promover a ficha errada.
+
+Como destravar (roteiro completo em `.scratch/agente-financeiro-v2/PAYLOAD-EVOGO.md`): capturar o
+JSON cru dos dois gestos, colar no fixture do teste, conferir campo a campo o que esta escrito
+abaixo, virar esta chave e tirar o `xfail`.
+"""
+
+# Tipos de `protocolMessage` que interessam. `REVOKE` ja e tratado por `extrair_delecao`; o edit e
+# o que morre la hoje. Os nomes vem do proto do WhatsApp; o numero e a grafia que a EvoGo emite de
+# fato NAO foram vistos ao vivo — e exatamente o que a captura tem que confirmar.
+_TIPOS_DE_EDICAO_HIPOTETICOS = frozenset({"MESSAGE_EDIT", "EDIT", "14"})
+
+
+def extrair_gesto(payload: dict[str, Any]) -> ReacaoEvolution | EdicaoEvolution | None:
+    """A UNICA porta de entrada de reacao e de edicao no webhook — e hoje ela esta FECHADA.
+
+    Devolve `None` enquanto `GRAFIA_DO_GESTO_CONFIRMADA` for `False`, que e o estado atual: o
+    payload real da EvoGo para os dois gestos nao existe no repo e nao e adivinhavel. Toda a
+    desserializacao mora AQUI, atras de uma funcao so, para que destravar seja mexer em um lugar —
+    e para que o resto do modulo (o dominio do gesto em
+    `dominio/grupo_financeiro/gesto.py`, ja escrito e testado) nunca dependa da grafia.
+
+    Duas regras que NAO dependem do payload e ja valem:
+
+    * **So grupo.** Gesto fora de um `@g.us` nao vira evento — e a fronteira que mantem a reacao
+      como ruido para o agente de venda (spec 0006, historia 56). Quem decide se o grupo e um
+      Grupo financeiro continua sendo a porta unica (closed-world contra `grupos_financeiros`),
+      nunca este arquivo.
+    * **O id e o do ALVO.** Como na revogacao, o envelope do gesto e uma mensagem de sistema com id
+      proprio, que nunca virou nada no nosso banco. Ler o id errado nao levanta erro nenhum: so
+      nao acha ficha, e o gesto some.
+    """
+    if not GRAFIA_DO_GESTO_CONFIRMADA:
+        return None
+    return _ler_gesto_hipotetico(payload)  # pragma: no cover - so roda com a grafia confirmada
+
+
+def _ler_gesto_hipotetico(
+    payload: dict[str, Any],
+) -> ReacaoEvolution | EdicaoEvolution | None:  # pragma: no cover - ver GRAFIA_DO_GESTO_CONFIRMADA
+    """A leitura escrita contra o envelope **HIPOTETICO**, para ser conferida contra o real.
+
+    Premissas, todas por confirmar (uma linha por premissa, para a captura poder marcar cada uma):
+
+    1. o gesto chega como `messages.upsert` depois de `adaptar_webhook_go`, com `data.key` e
+       `data.message` — o mesmo caminho da revogacao;
+    2. a reacao vem em `message.reactionMessage`, com o alvo em `.key.id` e o emoji em `.text`;
+    3. reacao RETIRADA chega com `.text` vazio (e nao um evento proprio);
+    4. a edicao vem em `message.protocolMessage` com `type` de edit e o texto novo em
+       `editedMessage` (conversation / extendedTextMessage.text);
+    5. o autor do gesto em grupo vem no `key.participant` do ENVELOPE.
+
+    As chaves estao em lowerCamel porque e o shape v2 que o resto do arquivo ja parseia. A EvoGo
+    entrega `data.Message` **sem traduzir** (`adaptar_webhook_go` so mexe no envelope), entao se o
+    whatsmeow serializar em CamelCase (`ReactionMessage`, `Key`, `Text`) nada aqui casa — e o
+    primeiro item a olhar no payload capturado.
+    """
+    raw_data = payload.get("data")
+    data = raw_data if isinstance(raw_data, dict) else {}
+    raw_key = data.get("key")
+    key = raw_key if isinstance(raw_key, dict) else {}
+    remote_jid = key.get("remoteJid") or data.get("remoteJid")
+    if not isinstance(remote_jid, str) or not remote_jid.endswith("@g.us"):
+        return None
+    raw_message = data.get("message")
+    message = raw_message if isinstance(raw_message, dict) else {}
+    participant = key.get("participant") or data.get("participant")
+    autor = str(participant) if participant else None
+    de_mim = bool(key.get("fromMe") or data.get("fromMe"))
+
+    reacao = message.get("reactionMessage")
+    if isinstance(reacao, dict):
+        alvo = _id_do_alvo(reacao.get("key"))
+        if not alvo:
+            return None
+        emoji = reacao.get("text")
+        return ReacaoEvolution(
+            evolution_message_id=alvo,
+            remote_jid=remote_jid,
+            emoji=str(emoji) if isinstance(emoji, str) else "",
+            participant=autor,
+            from_me=de_mim,
+        )
+
+    protocolo = message.get("protocolMessage")
+    if isinstance(protocolo, dict):
+        tipo = str(protocolo.get("type", protocolo.get("Type", ""))).upper()
+        if tipo not in _TIPOS_DE_EDICAO_HIPOTETICOS:
+            return None
+        alvo = _id_do_alvo(protocolo.get("key") or protocolo.get("Key"))
+        if not alvo:
+            return None
+        editada = protocolo.get("editedMessage")
+        texto = _texto(editada) if isinstance(editada, dict) else None
+        return EdicaoEvolution(
+            evolution_message_id=alvo,
+            remote_jid=remote_jid,
+            texto=(texto or "").strip(),
+            participant=autor,
+            from_me=de_mim,
+        )
+    return None
+
+
+def _id_do_alvo(chave: Any) -> str | None:
+    """O id da mensagem TOCADA pelo gesto, nunca o do envelope."""
+    if not isinstance(chave, dict):
+        return None
+    alvo = chave.get("id") or chave.get("ID")
+    return str(alvo) if alvo else None
 
 
 def extrair_mensagem(payload: dict[str, Any]) -> MensagemEvolution | None:
@@ -236,7 +473,14 @@ def extrair_mensagem(payload: dict[str, Any]) -> MensagemEvolution | None:
         caption=caption,
         media_base64=media_base64,
         media_mimetype=media_mimetype,
+        push_name=_texto_ou_none(data.get("pushName") or payload.get("pushName")),
     )
+
+
+def _texto_ou_none(valor: Any) -> str | None:
+    if not isinstance(valor, str):
+        return None
+    return valor.strip() or None
 
 
 # Forgiveness de comando (UX §6.3): sinônimos determinísticos da modelo/Fernando além das palavras

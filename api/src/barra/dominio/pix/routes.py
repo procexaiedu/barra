@@ -15,6 +15,13 @@ from barra.core.evolution import EvolutionClient
 from barra.core.metrics import PIX
 from barra.core.storage import presigned_get
 from barra.dominio.escaladas.service import ESTADOS_TERMINAIS, aplicar_comando
+from barra.dominio.grupo_financeiro.comprovante import (
+    MOTIVOS_DE_SUSPEITA,
+    SEPARADOR_DA_SUSPEITA,
+    MotivoDeSuspeita,
+    ler_suspeita,
+    normalizar_chave,
+)
 from barra.dominio.pix.schemas import (
     AprovarPixRequest,
     ReabrirPixRequest,
@@ -56,8 +63,16 @@ async def listar_pix(
         filtros.append("a.modelo_id = ANY(%s)")
         params.append(modelo_id)
     if motivo_em_revisao:
-        filtros.append("p.motivo_em_revisao = %s")
-        params.append(motivo_em_revisao)
+        # O painel manda o slug canonico (`destino_desconhecido`); a coluna guarda
+        # `marcar_suspeita()` = "slug: prosa". Igualdade exata nunca casaria — e nao casava mesmo
+        # antes do carimbo, quando a coluna era so prosa. Prefixo casa o slug e deixa o detalhe
+        # livre. Fora do vocabulario, cai na igualdade: e prosa antiga, que so existe inteira.
+        if motivo_em_revisao in MOTIVOS_DE_SUSPEITA:
+            filtros.append("p.motivo_em_revisao LIKE %s")
+            params.append(f"{motivo_em_revisao}{SEPARADOR_DA_SUSPEITA}%")
+        else:
+            filtros.append("p.motivo_em_revisao = %s")
+            params.append(motivo_em_revisao)
     if data_inicio:
         filtros.append("(p.created_at AT TIME ZONE 'America/Sao_Paulo')::date >= %s")
         params.append(data_inicio)
@@ -436,17 +451,52 @@ async def reabrir_pix(
     return {"id": pix_id, "decisao_final": None}
 
 
+_SUSPEITAS_DE_DESTINO: tuple[MotivoDeSuspeita, ...] = ("destino_desconhecido", "titular_divergente")
+
+
+def _conta_destino_de(pix: dict[str, Any]) -> tuple[bool, str | None]:
+    """ "O destino e de alguem da operacao?" — a resposta do PIPELINE, nao uma terceira comparacao.
+
+    ADR-0049 §1: divergencia deixou de ser *"nao bate com a chave DELA"* e passou a ser *"nao bate
+    com nenhuma chave conhecida da operacao"* (casa, modelo daquele atendimento, telefonista).
+    Quem sabe isso e `workers/pix.py::carregar_chaves_da_operacao`, que le o registro tipado; este
+    modulo so MOSTRA. Recomparar aqui contra `modelos.chave_pix` — que desde o ADR-0049 §3 e
+    destino de REPASSE e nao registro de origem — marcaria ✗ em todo deslocamento que
+    legitimamente caiu na conta da casa, contradizendo o `validado` da linha ao lado. E era a
+    mesma regressao dormente que o ticket 01 desarmou no worker, viva na tela.
+
+    Tres degraus, do mais informado ao mais antigo:
+
+    1. o slug canonico da suspeita (ticket 07) diz que o destino REPROVOU -> ✗ com o detalhe que o
+       worker escreveu;
+    2. ha slug (outra duvida) ou o pipeline validou -> ✓: a cadeia `if/elif` do worker so chega ao
+       destino depois de valor e legibilidade, entao "a duvida principal nao e o destino" e a
+       unica leitura honesta que a tela comporta;
+    3. prosa crua anterior ao ticket 07 -> a comparacao de sempre, agora por `normalizar_chave`,
+       que e a UNICA normalizacao de chave Pix do sistema desde o ticket 03. O `.strip().lower()`
+       que morava aqui era a terceira copia: por ele `+55 71 99984-0879` (como o gestor cadastrou)
+       e `+5571999840879` (como o OCR leu na tela do banco) eram chaves diferentes.
+    """
+    suspeita, detalhe = ler_suspeita(pix["motivo_em_revisao"])
+    if suspeita in _SUSPEITAS_DE_DESTINO:
+        return False, detalhe or "destino fora das chaves conhecidas da operacao"
+    if suspeita is not None or pix["decisao_pipeline"] == "validado":
+        return True, None
+    extraida, esperada = pix["chave_extraida"], pix["chave_pix"]
+    if extraida is None or esperada is None:
+        return False, "chave nao corresponde a cadastrada"
+    if normalizar_chave(extraida) != normalizar_chave(esperada):
+        return False, "chave nao corresponde a cadastrada"
+    return True, None
+
+
 def _checagens_de(pix: dict[str, Any]) -> list[dict[str, Any]]:
     valor_ok = (
         pix["valor_extraido"] is not None
         and pix["valor_acordado"] is not None
         and pix["valor_extraido"] == pix["valor_acordado"]
     )
-    chave_ok = (
-        pix["chave_extraida"] is not None
-        and pix["chave_pix"] is not None
-        and pix["chave_extraida"].strip().lower() == pix["chave_pix"].strip().lower()
-    )
+    chave_ok, motivo_chave = _conta_destino_de(pix)
     return [
         {
             "chave": "valor_esperado",
@@ -476,7 +526,7 @@ def _checagens_de(pix: dict[str, Any]) -> list[dict[str, Any]]:
             "chave": "conta_destino",
             "label": "Conta destino",
             "passou": chave_ok,
-            "motivo": None if chave_ok else "chave nao corresponde a cadastrada",
+            "motivo": motivo_chave,
         },
     ]
 

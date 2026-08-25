@@ -34,7 +34,12 @@ _logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = app.state.settings
     dev = settings.ambiente != "producao"
-    app.state.db_pool = await criar_pool(settings.database_url)
+    # `max_size` EXPLICITO. Sem ele o psycopg_pool assume 4, e 4 e pouco desde que o webhook
+    # ganhou caminhos que seguram a conexao durante I/O de provider: o Agente financeiro (spec
+    # 0005) faz STT e OCR dentro do `with pool.connection()` da request, e uma rajada de audios ou
+    # fotos num Grupo financeiro esgotava o pool que serve TAMBEM o painel e o webhook de cliente.
+    # 20 e o mesmo teto do worker ARQ (workers/settings.py).
+    app.state.db_pool = await criar_pool(settings.database_url, max_size=20)
     app.state.minio = criar_minio(settings)
     # MinIO/Redis vivem no swarm; em dev a maquina pode nao alcanca-los. Fora de producao
     # toleramos a falha (sobe sem midia/ARQ) — em producao propagamos (fail-fast).

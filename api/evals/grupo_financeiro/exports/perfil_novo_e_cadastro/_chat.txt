@@ -1,0 +1,26 @@
+[17/08/2026, 09:00:12] ~ Cris: ‎~ Cris criou este grupo
+[17/08/2026, 22:14:05] ~ Cris: Atendimento no nosso local 
+Cliente Rodrigo 
+Perfil duda/ bebel 
+700 1h
+[17/08/2026, 23:40:11] ~ Cris: Atendimento no nosso local 
+Cliente Wesley 
+Perfil bebel 
+600 1h
+[18/08/2026, 00:05:44] ~ Cris: a bebel é a Camila
+[18/08/2026, 12:10:02] ‪+55 11 98765‑1234‬: Bom dia gente
+[18/08/2026, 21:33:19] ~ Cris: Atendimento no nosso local 
+Cliente Fábio 
+Perfil bebel 
+600 1h
+[18/08/2026, 22:02:41] ~ Cris: Atendimento no nosso local 
+Cliente Igor 
+Perfil camla/ mia 
+800 1h
+[18/08/2026, 23:15:00] ~ Cris: Atendimento no nosso local 
+Cliente Téo 
+Perfil lari/ mia 
+900 1h
+[19/08/2026, 01:20:33] ~ Cris: Foi pix ou din amiga ?
+[19/08/2026, 01:41:07] ‪+55 11 98765‑1234‬: os dois de ontem foram pix
+[19/08/2026, 09:12:55] ‪+55 11 98765‑1234‬: Torre 1 Apt 507

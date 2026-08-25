@@ -36,11 +36,13 @@ class FakeConn:
         modelos: list[dict[str, Any]] | None = None,
         custo_ia: float = 0.0,
         importados_sem_data: tuple[int, float] = (0, 0.0),
+        vendas_registradas: tuple[int, float] = (0, 0.0),
     ) -> None:
         self.atendimentos = atendimentos or []
         self.modelos = modelos or []
         self.custo_ia = custo_ia
         self.importados_sem_data = importados_sem_data
+        self.vendas_registradas = vendas_registradas
         self.last_queries: list[str] = []
 
     @asynccontextmanager
@@ -115,6 +117,11 @@ class FakeConn:
         if "NOT EXISTS" in query and "fechado_registrado" in query:
             contagem, bruto = self.importados_sem_data
             return _Result([{"contagem": contagem, "valor_bruto": Decimal(str(bruto))}])
+
+        # receita_registrada (grupo_financeiro/repo) — a SEGUNDA fonte de receita (ADR-0043).
+        if "FROM barravips.vendas_registradas" in query:
+            contagem_vendas, total_vendas = self.vendas_registradas
+            return _Result([{"contagem": contagem_vendas, "total": Decimal(str(total_vendas))}])
 
         return _Result([])
 
@@ -647,6 +654,28 @@ def test_importados_sem_data_expoe_balde() -> None:
     bloco = response.json()["importados_sem_data"]
     assert bloco["contagem"] == 384
     assert bloco["valor_bruto_brl"] == 235080.0
+
+
+def test_receita_das_duas_fontes_no_dashboard() -> None:
+    """ADR-0043: o dashboard le as DUAS fontes. Com `atendimentos` vazio (producao hoje), o
+    bloco financeiro mostraria R$ 0,00 enquanto os Grupos financeiros faturam todo dia."""
+    conn = FakeConn(vendas_registradas=(3, 1900.0))
+    _instalar_override(conn)
+    try:
+        with TestClient(app) as client:
+            response = client.get("/v1/dashboard", params={"periodo": "7d"}, headers=_token())
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+    assert response.status_code == 200
+    corpo = response.json()
+    fontes = corpo["receita_das_duas_fontes"]
+    assert fontes["atendimentos_fechados_brl"] == 0.0
+    assert fontes["vendas_registradas_brl"] == 1900.0
+    assert fontes["vendas_registradas_total"] == 3
+    assert fontes["total_brl"] == 1900.0
+    # A projecao de atendimentos (ADR-0011) segue intacta: liquido e repasse sao dela.
+    assert corpo["financeiro"]["valor_bruto_brl"] == 0.0
 
 
 def test_norte_cotacao_conversao_e_receita_por_thread() -> None:

@@ -271,6 +271,7 @@ function DashboardConteudo({
         onAbrirLista={onAbrirMetrica}
         serieLiquido={series.liquido?.pontos}
         importadosSemData={data.importados_sem_data}
+        receitaDasDuasFontes={data.receita_das_duas_fontes}
       />
 
       {/* Seção 4 — Funil de vendas por coorte (4 etapas; perdas como saída lateral) */}

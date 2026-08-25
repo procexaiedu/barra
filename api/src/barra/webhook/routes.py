@@ -15,6 +15,16 @@ from uuid import UUID
 import httpx
 from fastapi import APIRouter, Header, Request
 
+from barra.agente_financeiro.comprovante import leitor_de_comprovante
+from barra.agente_financeiro.leitura import leitor_de_intencao
+from barra.agente_financeiro.porta import (
+    EnviarNoGrupo,
+    de_evolution,
+    delecao_de_evolution,
+    processar_delecao_do_grupo,
+    processar_mensagem_do_grupo,
+)
+from barra.agente_financeiro.transcricao import ouvinte_do_grupo
 from barra.core.errors import ErroDominio, JidNaoPermitido
 from barra.core.evolution import EvolutionClient, envio_existe
 from barra.core.feedback_inbox import (
@@ -31,6 +41,7 @@ from barra.webhook.parser import (
     MensagemEvolution,
     _numero_curto,
     adaptar_webhook_go,
+    extrair_delecao,
     extrair_mensagem,
     parse_comando_grupo,
 )
@@ -300,6 +311,21 @@ async def evolution_webhook(
         async with pool.connection() as conn:
             return await _processar_evento_instancia(conn, payload, evento)
 
+    # Mensagem apagada para todos (spec 0005, ticket 05): o gesto com que o Grupo financeiro
+    # corrige uma venda (apaga e reposta). Vem antes do `extrair_mensagem` porque ele devolve
+    # None para `protocolMessage`/`messages.delete` — sem este ramo o evento morria no descarte
+    # e a venda anunciada na mensagem apagada continuaria no extrato. Quem decide se o grupo
+    # importa e a porta única (closed-world contra `grupos_financeiros`), como no ramo de
+    # mensagem logo abaixo; delecao em qualquer outro chat segue o fluxo normal (e e ignorada).
+    delecao = extrair_delecao(payload)
+    if delecao is not None and delecao.remote_jid.endswith("@g.us"):
+        async with pool.connection() as conn:
+            resultado_delecao = await processar_delecao_do_grupo(
+                conn, delecao_de_evolution(delecao)
+            )
+        if resultado_delecao.status != "grupo_nao_cadastrado":
+            return {"status": f"grupo_financeiro_{resultado_delecao.status}"}
+
     msg = extrair_mensagem(payload)
     if msg is None:
         _registrar_descarte(payload)
@@ -361,9 +387,32 @@ async def evolution_webhook(
         #
         # Mesmo criterio do ramo `@lid` sem `remoteJidAlt` logo abaixo, e pelo mesmo motivo:
         # identificador opaco nao e telefone, e a chave do Cliente e o E.164 (CONTEXT "Cliente").
-        # Um grupo so entra pelo ramo de cima, batendo `modelos.coordenacao_chat_id`.
+        # Um grupo so entra pelo ramo de cima, batendo `modelos.coordenacao_chat_id` — ou pelo
+        # ramo do Grupo financeiro logo abaixo, batendo `grupos_financeiros.jid` (spec 0005).
         # 200 (nao 4xx) para a Evolution dar ack e nao reentregar em loop.
         if msg.remote_jid.endswith("@g.us"):
+            # Grupo financeiro (spec 0005): destino NOVO da rota compartilhada do numero ProceX
+            # (o mesmo webhook-router que serve o myEYE). Quem decide se este grupo e um Grupo
+            # financeiro e a PORTA UNICA — closed-world contra `grupos_financeiros`, nao um JID
+            # em settings. O webhook segue fino: nao classifica, nao responde, nao persiste em
+            # `mensagens` (o log de origem do modulo e outro). Grupo desconhecido pela porta cai
+            # no descarte de sempre logo abaixo.
+            # `midia` (os bytes ja decifrados, obtidos acima) entra junto porque a modelo responde
+            # por AUDIO — "foi pix", "600", "é a Duda" chegam falados (spec 0005, ticket 06) — e
+            # porque ela manda o COMPROVANTE do Pix em foto (ticket 07). A porta transcreve/le e
+            # segue; sem bytes ou sem provider ela registra a mensagem e fica calada, nunca levanta
+            # (levantar aqui viraria reentrega em loop da Evolution).
+            if _e_a_instancia_da_procex(settings, msg):
+                resultado_financeiro = await processar_mensagem_do_grupo(
+                    conn,
+                    de_evolution(msg, midia=midia),
+                    enviar=_falar_no_grupo_financeiro(settings, msg),
+                    transcrever=ouvinte_do_grupo(settings),
+                    ler_comprovante=leitor_de_comprovante(settings),
+                    ler_intencao=leitor_de_intencao(settings),
+                )
+                if resultado_financeiro.status != "grupo_nao_cadastrado":
+                    return {"status": f"grupo_financeiro_{resultado_financeiro.status}"}
             WEBHOOK_DESCARTES.labels("grupo_nao_coordenacao").inc()
             _logger.info(
                 "webhook_grupo_nao_coordenacao instance=%s remote_jid=%s",
@@ -610,6 +659,61 @@ async def _eh_grupo_coordenacao(conn: Any, settings: Any, msg: MensagemEvolution
         (msg.remote_jid,),
     )
     return row is not None
+
+
+def _falar_no_grupo_financeiro(settings: Any, msg: MensagemEvolution) -> EnviarNoGrupo:
+    """Entregador do que a porta única do Agente financeiro decidir dizer (recibo, spec 0005).
+
+    A porta decide o texto E o alvo do quote; a rede fica aqui.
+
+    **A instância é a da ProceX, nunca a da modelo** — o mesmo invariante que o cron enuncia
+    (`workers/rotina_financeira`). Não dá para confiar na instância que entregou o evento: a
+    modelo é participante do próprio Grupo financeiro e o WhatsApp dela É uma instância Evolution
+    apontando para este mesmo webhook, então o evento chega DUAS vezes e a corrida decide qual
+    entrega vence o dedup. Se vencesse a dela, o recibo "✅ Registrei…" sairia assinado pelo
+    número pessoal da modelo. `settings.grupo_financeiro_instancia` é a fonte; o fallback para
+    `msg.instance_id` só existe para ambiente que ainda não a configurou (o ramo do webhook
+    também deixa de filtrar as entregas espelhadas nesse caso — ver `_e_a_instancia_da_procex`).
+
+    `enviar_texto_avulso` (e não `enviar_texto`) porque `envios_evolution` só aceita
+    `conversa_cliente`/`grupo_coordenacao` como contexto: o grupo financeiro não é nenhum dos
+    dois. `citar` vem da porta: o recibo cita o ANÚNCIO (que pode não ser a mensagem que entrou,
+    quando o registro foi destravado por uma resposta), e é isso que dá ao grupo o gesto de
+    corrigir respondendo (ticket 05). Falha de rede é absorvida pela porta — recibo perdido não
+    desfaz venda.
+    """
+    instancia = settings.grupo_financeiro_instancia or msg.instance_id
+
+    async def enviar(texto: str, *, citar: str | None = None) -> None:
+        await EvolutionClient(settings).enviar_texto_avulso(
+            instance_id=instancia,
+            remote_jid=msg.remote_jid,
+            texto=texto,
+            quoted_message_id=citar or msg.evolution_message_id or None,
+        )
+
+    return enviar
+
+
+def _e_a_instancia_da_procex(settings: Any, msg: MensagemEvolution) -> bool:
+    """Esta entrega veio pela instância do Agente financeiro (a da ProceX)?
+
+    O Grupo financeiro tem a modelo dentro (docs/dominio/grupo-financeiro.md) e o WhatsApp dela é
+    uma instância Evolution cadastrada apontando para este webhook. Logo TODA mensagem do grupo
+    chega duas vezes — pela ProceX e pela instância dela — com a mesma `chave_dedup`
+    (`evo:<message_id>`), e quem processa é quem chega primeiro. Isso não é só desperdício:
+    `fromMe` é relativo à instância que entregou, então na entrega da modelo as mensagens DELA
+    ("foi pix", "600", o comprovante) chegam com `fromMe=true` e morrem como `eco_do_agente`,
+    enquanto o recibo do próprio agente chega com `fromMe=false` e volta para o processamento —
+    exatamente o que o corte de eco existe para impedir.
+
+    Descartar a entrega espelhada resolve os três de uma vez. Fail-OPEN quando
+    `grupo_financeiro_instancia` está vazia: sem ela não há como saber qual entrega é a boa, e
+    desligar o módulo em silêncio seria pior — a mesma variável já é o kill-switch declarado da
+    rotina da manhã, e prod a define.
+    """
+    instancia = settings.grupo_financeiro_instancia
+    return not instancia or msg.instance_id == instancia
 
 
 async def _processar_grupo(

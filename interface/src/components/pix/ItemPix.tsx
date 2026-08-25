@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { formatBRL, formatTelefone, formatTempoRelativo } from "@/lib/formatters"
 import type { PixListaItem } from "@/tipos/pix"
-import { badgeForStatusPix, motivoRevisaoLabel, statusItemPix } from "./utils"
+import { badgeForStatusPix, lerSuspeita, statusItemPix } from "./utils"
 
 export function ItemPix({
   item,
@@ -18,6 +18,10 @@ export function ItemPix({
 }) {
   const status = statusItemPix(item.decisao_pipeline, item.decisao_final)
   const badge = badgeForStatusPix(status)
+  // Antes: `motivoRevisaoLabel[prosa]` -> `undefined` -> parágrafo vazio em TODO item em revisão,
+  // porque o backend nunca emitiu os slugs que este mapa esperava. `lerSuspeita` devolve o rótulo
+  // quando há carimbo e a prosa inteira quando não há — nos dois casos o operador vê o motivo.
+  const suspeita = lerSuspeita(item.motivo_em_revisao)
   const cliente = item.cliente.nome ?? formatTelefone(item.cliente.telefone)
   const meta = [
     cliente,
@@ -66,9 +70,9 @@ export function ItemPix({
           : <span className="font-sans text-sm font-normal text-text-muted">Valor não extraído</span>}
       </p>
       <p className="truncate text-[13px] text-text-muted">{meta}</p>
-      {status === "em_revisao" && item.motivo_em_revisao && (
-        <p className="mt-1 truncate text-[13px] text-text-muted">
-          {motivoRevisaoLabel[item.motivo_em_revisao]}
+      {status === "em_revisao" && suspeita.rotulo && (
+        <p className="mt-1 truncate text-[13px] text-text-muted" title={suspeita.detalhe}>
+          {suspeita.rotulo}
         </p>
       )}
     </article>

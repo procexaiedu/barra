@@ -28,6 +28,7 @@ from barra.core.janela import (
 from barra.dominio.escaladas.modelos import TipoEscalada, rotulo_tipo_escalada
 from barra.dominio.financeiro.calculos import VALOR_SERVICO_SQL as _VS
 from barra.dominio.financeiro.repo import importados_sem_data as _importados_sem_data
+from barra.dominio.grupo_financeiro.repo import receita_registrada as _receita_registrada
 
 router = APIRouter(dependencies=[Depends(get_user)])
 
@@ -59,6 +60,15 @@ async def dashboard(
     # ficam FORA de todo recorte por período acima. Espelhamos o balde do Financeiro
     # (financeiro/repo.importados_sem_data) para não somirem do dashboard.
     imp_contagem, imp_bruto = await _importados_sem_data(conn, modelo_id)
+    # Segunda fonte de receita (ADR-0043): as Vendas registradas nos Grupos financeiros. O
+    # dashboard precisa das DUAS fontes pelo mesmo motivo do Modulo Financeiro — hoje
+    # `atendimentos` esta vazio em producao e o bloco financeiro mostraria R$ 0,00 com a
+    # operacao faturando todo dia. Vem num bloco proprio, e nao somado dentro de
+    # `financeiro`: liquido e repasse sao calculados sobre snapshot do Atendimento, que a
+    # Venda registrada nao tem.
+    vendas_contagem, vendas_total = await _receita_registrada(
+        conn, de=janela.de, ate=janela.ate, modelo_ids=modelo_id
+    )
 
     agora = datetime.now(BRT)
 
@@ -83,6 +93,15 @@ async def dashboard(
         "profissionais": profissionais,
         "roi_ia": roi,
         "importados_sem_data": {"contagem": imp_contagem, "valor_bruto_brl": imp_bruto},
+        "receita_das_duas_fontes": {
+            "atendimentos_fechados_brl": kpis_periodo["fechamentos"]["valor_bruto_brl"],
+            "atendimentos_fechados_total": kpis_periodo["fechamentos"]["contagem"],
+            "vendas_registradas_brl": round(float(vendas_total), 2),
+            "vendas_registradas_total": vendas_contagem,
+            "total_brl": round(
+                kpis_periodo["fechamentos"]["valor_bruto_brl"] + float(vendas_total), 2
+            ),
+        },
         "servidor_em": agora.isoformat(),
     }
 

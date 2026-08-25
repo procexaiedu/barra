@@ -1,18 +1,21 @@
 "use client"
 
 import { Suspense, useCallback, useEffect, useState } from "react"
-import { Download } from "lucide-react"
+import { CheckCheck, Download, HandCoins, MapPin, Sheet } from "lucide-react"
 import { BannerErro } from "@/components/layout/BannerErro"
 import { PageHeader } from "@/components/layout/PageHeader"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
-import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 import { useFinanceiro, type FinanceiroView } from "@/hooks/useFinanceiro"
 import { useReceitaContexto } from "@/hooks/useReceitaContexto"
+import { useTemporadas } from "@/hooks/useTemporadas"
 import { PainelFinanceiro } from "@/components/financeiro/PainelFinanceiro"
+import { ListaTemporadas } from "@/components/financeiro/ListaTemporadas"
+import { ConferenciaPorForma } from "@/components/financeiro/ConferenciaPorForma"
 import { ListaReceitas } from "@/components/financeiro/ListaReceitas"
+import { ListaVendasRegistradas } from "@/components/financeiro/ListaVendasRegistradas"
 import { InspectorReceita } from "@/components/financeiro/InspectorReceita"
 import { RepassesPorModelo } from "@/components/financeiro/RepassesPorModelo"
 import { ToolbarFinanceiro } from "@/components/financeiro/ToolbarFinanceiro"
@@ -20,11 +23,30 @@ import { FiltroModelo } from "@/components/filtros/FiltroModelo"
 import { FiltroPeriodo } from "@/components/filtros/FiltroPeriodo"
 import type { ReceitaLinha } from "@/tipos/financeiro"
 import type { PeriodoSelecionado } from "@/tipos/filtros"
+import type { EstadoDaTemporada } from "@/tipos/razao"
+import { DialogAbrirTemporada } from "./_acoes/DialogAbrirTemporada"
+import { DialogFecharTemporada } from "./_acoes/DialogFecharTemporada"
+import { DialogExportarPlanilha } from "./_acoes/DialogExportarPlanilha"
+import { DialogVale } from "./_acoes/DialogVale"
+import { baixarPlanilha } from "./_acoes/baixarPlanilha"
 
 const VIEWS: { id: FinanceiroView; label: string }[] = [
   { id: "geral", label: "Visão geral" },
   { id: "receitas", label: "Receitas" },
+  // Segunda fonte de receita (ADR-0043): o que os Grupos financeiros anunciam.
+  { id: "vendas", label: "Vendas registradas" },
   { id: "repasses", label: "Repasses" },
+]
+
+// "Temporadas" é o "financeiro dos telefonistas" da reunião de 20/08 (ticket 04): as temporadas
+// com o saldo de cada modelo num lugar só. Fica FORA de `FinanceiroView` de propósito — aquele
+// estado mora na query string via `useFinanceiro`, que reescreve a URL a cada mudança de filtro e
+// descartaria um valor que ele não conhece. Aba local resolve sem tocar no hook compartilhado.
+
+const ESTADOS_DA_TEMPORADA: { id: EstadoDaTemporada | null; label: string }[] = [
+  { id: "aberta", label: "Abertas" },
+  { id: "fechada", label: "Fechadas" },
+  { id: null, label: "Todas" },
 ]
 
 export default function FinanceiroPage() {
@@ -37,6 +59,7 @@ export default function FinanceiroPage() {
 
 function FinanceiroInner() {
   const fin = useFinanceiro()
+  const [temporadasAberto, setTemporadasAberto] = useState(false)
   const view = fin.filtros.view
 
   const onPeriodoChange = (v: PeriodoSelecionado) => {
@@ -61,7 +84,7 @@ function FinanceiroInner() {
           <span className="text-xs font-medium text-text-muted">Modelo</span>
           <FiltroModelo value={fin.filtros.modelo_ids} onChange={fin.setModeloIds} />
         </div>
-        <ExportarBotao fin={fin} view={view} />
+        {!temporadasAberto && <ExportarBotao fin={fin} view={view} />}
       </PageHeader>
 
       <div className="flex flex-col gap-4">
@@ -71,14 +94,17 @@ function FinanceiroInner() {
           className="flex gap-1 border-b border-border"
         >
           {VIEWS.map((v) => {
-            const ativo = v.id === view
+            const ativo = !temporadasAberto && v.id === view
             return (
               <button
                 key={v.id}
                 type="button"
                 role="tab"
                 aria-selected={ativo}
-                onClick={() => fin.setView(v.id)}
+                onClick={() => {
+                  setTemporadasAberto(false)
+                  fin.setView(v.id)
+                }}
                 className={cn(
                   "relative px-3 pb-2.5 pt-1 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   ativo
@@ -90,14 +116,34 @@ function FinanceiroInner() {
               </button>
             )
           })}
+          <button
+            type="button"
+            role="tab"
+            aria-selected={temporadasAberto}
+            onClick={() => setTemporadasAberto(true)}
+            className={cn(
+              "relative px-3 pb-2.5 pt-1 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              temporadasAberto
+                ? "text-text-primary after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-border-brand"
+                : "text-text-muted hover:text-text-secondary",
+            )}
+          >
+            Temporadas
+          </button>
         </div>
 
-        <ToolbarFinanceiro fin={fin} />
+        {!temporadasAberto && <ToolbarFinanceiro fin={fin} />}
       </div>
 
       {fin.error && <BannerErro mensagem={fin.error} onRetry={fin.refetch} />}
 
-      {view === "geral" && (
+      {temporadasAberto && (
+        <div className="rise-in">
+          <ViewTemporadas fin={fin} />
+        </div>
+      )}
+
+      {!temporadasAberto && view === "geral" && (
         <div className="rise-in">
           <PainelFinanceiro
             resumo={fin.resumo}
@@ -107,12 +153,24 @@ function FinanceiroInner() {
           />
         </div>
       )}
-      {view === "receitas" && (
+      {!temporadasAberto && view === "receitas" && (
         <div className="rise-in">
           <ViewReceitas fin={fin} />
         </div>
       )}
-      {view === "repasses" && (
+      {!temporadasAberto && view === "vendas" && (
+        <div className="rise-in">
+          <ListaVendasRegistradas
+            lista={fin.vendas}
+            loading={fin.status === "loading"}
+            incluirAnuladas={fin.filtros.incluir_anuladas}
+            onIncluirAnuladas={fin.setIncluirAnuladas}
+            onCarregarMais={fin.carregarMaisVendas}
+            carregandoMais={fin.carregandoMaisVendas}
+          />
+        </div>
+      )}
+      {!temporadasAberto && view === "repasses" && (
         <div className="rise-in">
           <RepassesPorModelo
             repasses={fin.repasses}
@@ -122,6 +180,125 @@ function FinanceiroInner() {
           />
         </div>
       )}
+    </div>
+  )
+}
+
+/**
+ * O "financeiro dos telefonistas" (ticket 04): as temporadas com o saldo de cada modelo e a
+ * conferência por forma de pagamento — sem o gestor entrar em grupo nenhum.
+ *
+ * A conferência responde pelo PERÍODO do header; cada temporada responde pelo período dela. São
+ * duas perguntas diferentes que o gestor faz ao mesmo tempo, e forçar um recorte só perderia uma.
+ */
+function ViewTemporadas({ fin }: { fin: ReturnType<typeof useFinanceiro> }) {
+  const [estado, setEstado] = useState<EstadoDaTemporada | null>("aberta")
+  const { temporadas, conferencia, status, error, refetch } = useTemporadas({
+    estado,
+    periodo: fin.filtros.periodo,
+    de: fin.filtros.de,
+    ate: fin.filtros.ate,
+    modelo_ids: fin.filtros.modelo_ids,
+  })
+
+  // As três ações do ticket 05 vivem AQUI, e não numa fala no grupo: fechar move dinheiro de
+  // verdade e a modelo está dentro do grupo (ADR-0045 §8). O vale tem as duas portas — esta e a
+  // fala que o agente lê — e o extrato mostra de qual delas cada lançamento veio.
+  const [abrirTemporada, setAbrirTemporada] = useState(false)
+  const [lancarVale, setLancarVale] = useState(false)
+  const [fecharTemporada, setFecharTemporada] = useState(false)
+  // Exportar NÃO é uma dessas três: não move dinheiro, só espelha o que a tela já mostra
+  // (ticket 18). Fica junto delas porque é o mesmo gesto de fim de mês.
+  const [exportar, setExportar] = useState(false)
+  const items = temporadas?.items ?? []
+
+  return (
+    <div className="flex flex-col gap-5">
+      <ConferenciaPorForma conferencia={conferencia} loading={status === "loading"} />
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="max-w-xl text-[12px] text-text-muted">
+          A temporada é a viagem da modelo para uma cidade, e é a unidade de pagamento do negócio.
+          Ela não congela cálculo: o saldo é recalculado a cada leitura, e comprovante que chegar
+          depois de fechada muda o número sem ninguém reabrir nada.
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => setAbrirTemporada(true)}>
+            <MapPin size={15} strokeWidth={1.5} />
+            Abrir temporada
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => setLancarVale(true)}>
+            <HandCoins size={15} strokeWidth={1.5} />
+            Lançar vale
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setExportar(true)}
+            disabled={items.length === 0}
+          >
+            <Sheet size={15} strokeWidth={1.5} />
+            Exportar planilha
+          </Button>
+          <Button size="sm" onClick={() => setFecharTemporada(true)} disabled={items.length === 0}>
+            <CheckCheck size={15} strokeWidth={1.5} />
+            Fechar temporada
+          </Button>
+        </div>
+        <div role="group" aria-label="Estado da temporada" className="flex gap-1">
+          {ESTADOS_DA_TEMPORADA.map((e) => (
+            <button
+              key={e.label}
+              type="button"
+              aria-pressed={estado === e.id}
+              onClick={() => setEstado(e.id)}
+              className={cn(
+                "rounded-md px-2.5 py-1 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                estado === e.id
+                  ? "bg-muted text-text-primary"
+                  : "text-text-muted hover:text-text-secondary",
+              )}
+            >
+              {e.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <ListaTemporadas
+        lista={temporadas}
+        loading={status === "loading"}
+        error={error}
+        onRetry={refetch}
+      />
+
+      <DialogAbrirTemporada
+        open={abrirTemporada}
+        onOpenChange={setAbrirTemporada}
+        onAberta={refetch}
+      />
+      <DialogVale
+        open={lancarVale}
+        onOpenChange={setLancarVale}
+        temporadas={items}
+        onLancado={refetch}
+      />
+      <DialogFecharTemporada
+        open={fecharTemporada}
+        onOpenChange={setFecharTemporada}
+        temporadas={items}
+        onFechado={refetch}
+      />
+      <DialogExportarPlanilha
+        open={exportar}
+        onOpenChange={setExportar}
+        temporadas={items}
+        estado={estado}
+        periodo={fin.filtros.periodo}
+        de={fin.filtros.de}
+        ate={fin.filtros.ate}
+        modeloIds={fin.filtros.modelo_ids}
+      />
     </div>
   )
 }
@@ -242,25 +419,7 @@ function ExportarBotao({
   async function baixar() {
     setBaixando(true)
     try {
-      const path = fin.montarPathExport(recurso!)
-      const { data: { session } } = await supabase.auth.getSession()
-      const baseURL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000"
-      const r = await fetch(`${baseURL}${path}`, {
-        headers: session ? { authorization: `Bearer ${session.access_token}` } : {},
-      })
-      if (!r.ok) throw new Error(`Erro ${r.status}`)
-      const blob = await r.blob()
-      const url = URL.createObjectURL(blob)
-      const disposition = r.headers.get("content-disposition") ?? ""
-      const matched = disposition.match(/filename="([^"]+)"/)
-      const filename = matched?.[1] ?? `${view}.csv`
-      const a = document.createElement("a")
-      a.href = url
-      a.download = filename
-      document.body.appendChild(a)
-      a.click()
-      a.remove()
-      URL.revokeObjectURL(url)
+      await baixarPlanilha(fin.montarPathExport(recurso!), `${view}.csv`)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Falha ao exportar CSV")
     } finally {

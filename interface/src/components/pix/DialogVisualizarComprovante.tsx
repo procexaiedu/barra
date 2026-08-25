@@ -36,7 +36,9 @@ import {
   badgeForStatusPix,
   checagemLabel,
   motivoRejeicaoOptions,
-  motivoRevisaoLabel,
+  lerSuspeita,
+  REJEICAO_PADRAO,
+  rejeicaoSugerida,
   statusItemPix,
   tipoChaveLabel,
 } from "./utils"
@@ -68,8 +70,13 @@ export function DialogVisualizarComprovante({
   onAprovar?: () => Promise<void>
   onRejeitar?: (motivo: MotivoRejeicao, observacao: string | null) => Promise<void>
 }) {
+  // A dúvida da máquina, no vocabulário único (ADR-0049 §5, ticket 07): ela dá o rótulo e
+  // pré-seleciona o motivo de rejeição.
+  const suspeita = lerSuspeita(pix?.motivo_em_revisao ?? null)
+  const rejeicaoInicial = suspeita.motivo ? rejeicaoSugerida[suspeita.motivo] : REJEICAO_PADRAO
+
   const [fase, setFase] = useState<Fase>("view")
-  const [motivo, setMotivo] = useState<MotivoRejeicao>("valor_incorreto")
+  const [motivo, setMotivo] = useState<MotivoRejeicao>(rejeicaoInicial)
   const [observacao, setObservacao] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
@@ -81,7 +88,7 @@ export function DialogVisualizarComprovante({
     setOpenAnterior(open)
     if (!open) {
       setFase("view")
-      setMotivo("valor_incorreto")
+      setMotivo(rejeicaoInicial)
       setObservacao("")
       setErro(null)
     }
@@ -143,10 +150,7 @@ export function DialogVisualizarComprovante({
   const clienteLabel = cliente
     ? cliente.nome ?? formatTelefone(cliente.telefone)
     : null
-  const motivoRevisao =
-    pix?.motivo_em_revisao && pix.motivo_em_revisao in motivoRevisaoLabel
-      ? motivoRevisaoLabel[pix.motivo_em_revisao]
-      : null
+  const motivoRevisao = suspeita.rotulo || null
 
   const totalChecagens = checagens.length
   const passaram = checagens.filter((c) => c.passou).length
@@ -276,7 +280,10 @@ export function DialogVisualizarComprovante({
                 {valor ?? "Não identificado"}
               </p>
               {motivoRevisao && (
-                <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-state-handoff/15 px-2.5 py-1 text-xs font-medium text-state-handoff">
+                <p
+                  className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-state-handoff/15 px-2.5 py-1 text-xs font-medium text-state-handoff"
+                  title={suspeita.detalhe}
+                >
                   <RotateCcw size={12} strokeWidth={1.8} />
                   {motivoRevisao}
                 </p>

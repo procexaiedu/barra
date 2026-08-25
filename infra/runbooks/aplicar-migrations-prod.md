@@ -75,6 +75,37 @@ Reaplicar uma migration já aplicada é seguro **se** ela for idempotente (regra
 
 Rode de novo as checagens do passo 1: o artefato agora deve existir. Para defaults/backfill, confira também uma amostra de linhas.
 
+## 4. Dado operacional que não mora no repositório: a chave Pix de fechamento
+
+A migration `20260814031400_comprovante_de_fechamento.sql` cria `barravips.chaves_pix_conhecidas` **vazia**, e nenhuma migration a preenche. A chave Pix de fechamento da casa é **dado operacional vivo** (chave Pix + nome civil do titular): por decisão do dono (2026-08-14) ela **não entra no git** — nem em seed, nem em teste, nem em comentário. O cadastro dela é este passo manual, feito **uma vez por ambiente**.
+
+**Onde achar a chave (não está aqui de propósito):** é o destino que a operação dita no **Grupo financeiro** da modelo quando pede a transferência do fechamento ("Pode enviar nesse pix …"); depois de cadastrada, ela fica visível no **painel**, no comprovante de fechamento (`chave_pix_destino` da venda conciliada). Na dúvida sobre qual é a vigente, pergunte ao Fernando — não deduza de um comprovante antigo.
+
+**O que acontece enquanto a tabela está vazia (fail-safe conhecido):** `chave_e_conhecida()` é *closed-world* — sem nenhuma linha, **todo** comprovante conta como destino desconhecido. O agente **abate as vendas do mesmo jeito** (destino fora da lista nunca trava nada) e acrescenta o aviso "⚠️ Esse Pix foi pra uma chave fora da lista da casa" em **todos** eles, e o painel marca `chave_pix_desconhecida: true` em todas as vendas conciliadas. Ruído, não bloqueio. Cadastrar a chave é o que cala o aviso no caminho normal.
+
+**O INSERT** (rode via MCP postgres ou psql; substitua os dois placeholders — nunca cole o resultado num arquivo do repo). `chave_normalizada` é a chave sem espaço, pontuação e sinal, em minúsculo — a mesma normalização que o código aplica ao que o OCR leu (`normalizar_chave`), e é ela que faz `"+55 71 99984 0879"` e `"+5571999840879"` serem a mesma chave:
+
+```sql
+INSERT INTO barravips.chaves_pix_conhecidas (chave, chave_normalizada, titular, descricao)
+VALUES (
+  '<CHAVE PIX DE FECHAMENTO>',
+  lower(regexp_replace('<CHAVE PIX DE FECHAMENTO>', '[[:space:].+()/-]', '', 'g')),
+  '<TITULAR DA CHAVE>',
+  'Chave de fechamento da casa (spec 0005, ticket 07).'
+)
+ON CONFLICT (chave_normalizada) DO NOTHING;
+```
+
+Idempotente: rodar 2x não duplica. Confira depois (o `titular` sai na conferência só para você reconhecer a linha):
+
+```sql
+SELECT chave_normalizada, titular, ativo FROM barravips.chaves_pix_conhecidas;
+```
+
+**Rotação:** chave que saiu de uso **não se deleta** — `UPDATE … SET ativo = false` (ela ainda precisa explicar os comprovantes antigos que apontam para ela) e um INSERT novo para a vigente.
+
+**A chave da 3RJ (cobrança de anúncio) não entra aqui:** ela não é destino de fechamento; comprovante que vai para ela é o caso "não casa com venda nenhuma", que fica retido de propósito.
+
 ## Regras que continuam valendo
 
 - Migration já aplicada é **imutável**: não renumere nem edite. Corrija com uma migration nova (`infra/sql/CLAUDE.md`). A imutabilidade do nome é o que torna `schema_migrations.filename` uma chave estável.

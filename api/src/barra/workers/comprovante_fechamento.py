@@ -27,6 +27,7 @@ from openai import AsyncOpenAI
 
 from barra.core.errors import ConflitoEstado, ErroDominio
 from barra.core.evolution import EvolutionClient
+from barra.core.vision import MODELO_VISION_PADRAO
 from barra.dominio.escaladas.service import aplicar_comando
 from barra.webhook.respostas import texto_confirmacao, texto_erro_comando, texto_erro_dominio
 from barra.workers.pix import (
@@ -114,7 +115,7 @@ async def fechar_via_comprovante(
                 bytes_img,
                 media_type=media_type,
                 client=vision_client,
-                modelo=settings.openrouter_model_vision_pix or "google/gemini-3-flash-preview",
+                modelo=settings.openrouter_model_vision_pix or MODELO_VISION_PADRAO,
             )
             valor = extracao.valor
             # "Sem rede": plausibilidade/legibilidade NAO gateiam o fechamento (decisao de produto).

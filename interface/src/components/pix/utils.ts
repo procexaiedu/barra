@@ -7,8 +7,8 @@ import type {
   EstadoAtendimento,
   EventoPix,
   FiltroStatusPix,
+  MotivoDeSuspeita,
   MotivoRejeicao,
-  MotivoRevisao,
   PixDetalhe,
   PixListaItem,
   TipoChave,
@@ -23,33 +23,92 @@ export interface BadgePix {
   label: string
 }
 
-export const motivoRevisaoLabel: Record<MotivoRevisao, string> = {
-  valor_divergente: "Valor divergente",
-  fora_da_janela: "Fora da janela",
-  conta_destino_invalida: "Conta destino inválida",
-  duplicado: "Comprovante duplicado",
-  ocr_falhou: "Não conseguimos ler",
-  outro: "Outro",
+/**
+ * Como o painel chama cada suspeita — a etiqueta do vocabulário único (ADR-0049 §5, ticket 07).
+ * A ordem é a `PRECEDENCIA_DA_SUSPEITA` do backend: da dúvida mais grave para a mais fraca.
+ */
+export const rotuloDaSuspeita: Record<MotivoDeSuspeita, string> = {
+  imagem_repetida: "Foto repetida",
+  sem_leitura: "Não conseguimos ler",
+  imagem_implausivel: "Comprovante suspeito",
+  imagem_ilegivel: "Comprovante ilegível",
+  valor_abaixo_do_esperado: "Valor abaixo do esperado",
+  destino_desconhecido: "Destino desconhecido",
+  titular_divergente: "Titular divergente",
 }
 
-export const motivoRevisaoFiltroOptions: { value: MotivoRevisao | "todos"; label: string }[] = [
+export const motivoSuspeitaFiltroOptions: { value: MotivoDeSuspeita | "todos"; label: string }[] = [
   { value: "todos", label: "Todos" },
-  { value: "valor_divergente", label: "Valor divergente" },
-  { value: "fora_da_janela", label: "Fora da janela" },
-  { value: "conta_destino_invalida", label: "Conta destino inválida" },
-  { value: "duplicado", label: "Comprovante duplicado" },
-  { value: "ocr_falhou", label: "Não conseguimos ler" },
-  { value: "outro", label: "Outro" },
+  ...(Object.keys(rotuloDaSuspeita) as MotivoDeSuspeita[]).map((value) => ({
+    value,
+    label: rotuloDaSuspeita[value],
+  })),
 ]
+
+/**
+ * O que a máquina suspeitou -> o veredito que o humano provavelmente vai dar. Espelha
+ * `barra.dominio.pix.schemas.REJEICAO_SUGERIDA`; é só o pré-selecionado do diálogo de rejeição,
+ * e trocar continua sendo um clique.
+ */
+export const rejeicaoSugerida: Record<MotivoDeSuspeita, MotivoRejeicao> = {
+  imagem_repetida: "duplicado",
+  sem_leitura: "comprovante_ilegivel",
+  imagem_implausivel: "comprovante_falso",
+  imagem_ilegivel: "comprovante_ilegivel",
+  valor_abaixo_do_esperado: "valor_incorreto",
+  destino_desconhecido: "conta_destino_errada",
+  titular_divergente: "conta_destino_errada",
+}
+
+export const REJEICAO_PADRAO: MotivoRejeicao = "valor_incorreto"
 
 export const motivoRejeicaoOptions: { value: MotivoRejeicao; label: string }[] = [
   { value: "valor_incorreto", label: "Valor incorreto" },
   { value: "comprovante_ilegivel", label: "Comprovante ilegível" },
   { value: "conta_destino_errada", label: "Conta destino errada" },
+  { value: "comprovante_falso", label: "Comprovante falso (montagem)" },
   { value: "duplicado", label: "Comprovante duplicado" },
   { value: "fora_da_janela", label: "Fora da janela temporal" },
   { value: "outro", label: "Outro" },
 ]
+
+const SEPARADOR_DA_SUSPEITA = ": "
+
+export interface SuspeitaLida {
+  /** O motivo canônico, quando o backend carimbou. `null` na prosa antiga, sem carimbo. */
+  motivo: MotivoDeSuspeita | null
+  /** A prosa que o revisor lê: o número, a chave como foi lida. Sempre presente. */
+  detalhe: string
+  /** A etiqueta curta da lista: o rótulo quando há motivo, senão a própria prosa. */
+  rotulo: string
+}
+
+/**
+ * Separa `"valor_abaixo_do_esperado: valor extraido 80.00 < esperado R$100"` em motivo + detalhe.
+ *
+ * Fail-open de propósito: toda linha gravada antes do ticket 07 tem prosa crua, e exigir o
+ * carimbo transformaria o histórico inteiro em "motivo desconhecido". Sem motivo, o detalhe é a
+ * prosa inteira — que é exatamente o que o operador precisava ver e não via.
+ *
+ * Só o PRIMEIRO separador é limite: a prosa do backend já usa ":" internamente
+ * ("vision inconclusivo: finish_reason=length").
+ */
+export function lerSuspeita(motivoEmRevisao: string | null): SuspeitaLida {
+  if (!motivoEmRevisao) return { motivo: null, detalhe: "", rotulo: "" }
+  const corte = motivoEmRevisao.indexOf(SEPARADOR_DA_SUSPEITA)
+  if (corte > 0) {
+    const cabeca = motivoEmRevisao.slice(0, corte)
+    if (cabeca in rotuloDaSuspeita) {
+      const motivo = cabeca as MotivoDeSuspeita
+      return {
+        motivo,
+        detalhe: motivoEmRevisao.slice(corte + SEPARADOR_DA_SUSPEITA.length),
+        rotulo: rotuloDaSuspeita[motivo],
+      }
+    }
+  }
+  return { motivo: null, detalhe: motivoEmRevisao, rotulo: motivoEmRevisao }
+}
 
 export const statusFiltroOptions: { value: FiltroStatusPix; label: string }[] = [
   { value: "pendentes", label: "Aguardando você" },

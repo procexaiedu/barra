@@ -1,0 +1,28 @@
+{
+  "dona": "Bruna",
+  "elenco": {
+    "Bruna": [
+      "bruna",
+      "mel"
+    ],
+    "Kelly": [
+      "kelly",
+      "mia"
+    ],
+    "Sara": [
+      "sara",
+      "sasa"
+    ]
+  },
+  "gestoras": [
+    "~ Vivi"
+  ],
+  "chave_da_casa": "d4f1a9c2-1111-4c55-9aa0-77b6c0e91234",
+  "nome_do_grupo": "Modelo Bruna/ financeiro",
+  "numero_da_modelo": "5511912345678",
+  "sobre": [
+    "Grupo de parceria: a Bruna divide atendimento com a Kelly, e a gestora Vivi posta tudo.",
+    "'nathy' NAO esta no elenco de proposito — e o caso da user story 20 (o agente pergunta",
+    "quem e, em vez de registrar metade da venda em silencio)."
+  ]
+}

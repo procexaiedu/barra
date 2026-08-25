@@ -1,0 +1,22 @@
+{
+  "dona": "Sabrina",
+  "elenco": {
+    "Sabrina": [
+      "sabrina",
+      "sasa"
+    ]
+  },
+  "gestoras": [
+    "~ Rê"
+  ],
+  "chave_da_casa": "a7c3e910-2222-4d66-8bb1-90c4d1f75555",
+  "nome_do_grupo": "Modelo Sabrina/ financeiro",
+  "numero_da_modelo": "5571988881122",
+  "sobre": [
+    "O fechamento que vem em PARTES: R$ 2.100,00 em pix, um comprovante de R$ 1.200,00 (abate",
+    "duas vendas e deixa uma), a MESMA foto reenviada (dedup), um de R$ 1.000,00 que cobre a",
+    "terceira e SOBRA (credito da modelo) e o pagamento da cobranca da agencia.",
+    "Tem tambem os dois buracos conhecidos: 'cancela esse atendimento' (anulacao por texto) e",
+    "'como ta a conta?' (pedido de fechamento em fala livre)."
+  ]
+}

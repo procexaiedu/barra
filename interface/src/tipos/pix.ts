@@ -3,18 +3,36 @@ import type { PeriodoSelecionado } from "@/tipos/filtros"
 export type DecisaoPipeline = "validado" | "em_revisao"
 export type DecisaoFinal = "validado" | "invalido" | null
 
-export type MotivoRevisao =
-  | "valor_divergente"
-  | "fora_da_janela"
-  | "conta_destino_invalida"
-  | "duplicado"
-  | "ocr_falhou"
-  | "outro"
+/**
+ * Por que ESTE comprovante ficou duvidoso — o vocabulário único dos dois caminhos
+ * (ADR-0049 §5, ticket 07). Espelha
+ * `barra.dominio.grupo_financeiro.comprovante.MotivoDeSuspeita`.
+ *
+ * ⚠️ O que existia aqui antes era um TERCEIRO vocabulário (`valor_divergente`, `ocr_falhou`,
+ * `conta_destino_invalida`) que o backend nunca emitiu: `motivo_em_revisao` sempre veio como
+ * prosa livre, então `motivoRevisaoLabel[prosa]` era `undefined` e a linha do motivo na lista de
+ * Pix renderizava VAZIA. Agora o backend carimba o motivo canônico na frente da prosa e
+ * `lerSuspeita` separa os dois.
+ */
+export type MotivoDeSuspeita =
+  | "imagem_repetida"
+  | "sem_leitura"
+  | "imagem_implausivel"
+  | "imagem_ilegivel"
+  | "valor_abaixo_do_esperado"
+  | "destino_desconhecido"
+  | "titular_divergente"
 
+/**
+ * O VEREDITO humano ao rejeitar — o que Fernando concluiu, não o que a máquina suspeitou.
+ * `comprovante_falso` entrou no ticket 07: o "Pix zoado" da ata não tinha palavra própria e o
+ * operador era obrigado a marcar `outro`.
+ */
 export type MotivoRejeicao =
   | "valor_incorreto"
   | "comprovante_ilegivel"
   | "conta_destino_errada"
+  | "comprovante_falso"
   | "duplicado"
   | "fora_da_janela"
   | "outro"
@@ -96,7 +114,8 @@ export interface PixListaItem {
   atendimento: AtendimentoListaPix | null
   decisao_pipeline: DecisaoPipeline
   decisao_final: DecisaoFinal
-  motivo_em_revisao: MotivoRevisao | null
+  /** Prosa do backend, com o motivo canônico carimbado na frente (ver `lerSuspeita`). */
+  motivo_em_revisao: string | null
   valor_extraido: number | null
   created_at: string
 }
@@ -110,7 +129,8 @@ export interface PixDetalhe {
   id: string
   decisao_pipeline: DecisaoPipeline
   decisao_final: DecisaoFinal
-  motivo_em_revisao: MotivoRevisao | null
+  /** Prosa do backend, com o motivo canônico carimbado na frente (ver `lerSuspeita`). */
+  motivo_em_revisao: string | null
   valor_extraido: number | null
   horario_transacao: string | null
   titular_extraido: string | null
@@ -149,7 +169,7 @@ export interface FiltrosPix {
   busca: string
   status: FiltroStatusPix
   modelo_ids: string[]
-  motivo_em_revisao: MotivoRevisao | "todos"
+  motivo_em_revisao: MotivoDeSuspeita | "todos"
   periodo: PeriodoSelecionado
   atendimento_id: string | null
 }
