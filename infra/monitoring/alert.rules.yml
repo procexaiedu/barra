@@ -446,11 +446,31 @@ groups:
       # force-update do worker; a janela sustenta o ultimo veredito conhecido em vez de resolver e
       # re-disparar a cada deploy. Janela = 90m para cobrir o intervalo default do canario (60m)
       # com folga; encurte junto se baixar canario_intervalo_min.
-      # Canario DESLIGADO (default) nao tem serie: a regra nao dispara, nao ha alarme de silencio.
+      # CORRIGIDO 19/08/2026 — a versao anterior desta regra dizia que "canario DESLIGADO nao tem
+      # serie, entao a regra nao dispara". FALSO: `CANARIO_ENTREGA_OK` e um Gauge SEM LABEL, e o
+      # prometheus_client cria a serie JA EM 0 no import — em api E worker. Com `canario_jid` vazio
+      # nada nunca a seta para 1, e a regra ficava critica para sempre (constatado em prod no dia
+      # em que o v6 finalmente subiu). Gauge sem label nao distingue "verificado e falhou" de
+      # "nunca verificado".
+      #
+      # A prova de que o canario ROLOU vem do Counter `barra_canario_entrega_total{resultado}`:
+      # Counter COM label so materializa a serie no primeiro `.labels(...).inc()`, que so acontece
+      # dentro de `_verificar_pendentes`/`_enviar_sonda` — ou seja, com o canario ligado. Compondo
+      # os dois, a regra volta a significar o que o nome promete: houve ciclo na janela E o ultimo
+      # nao fechou o laco. De quebra, o `on(job, instance)` elimina a serie da barra-api (que expoe
+      # o gauge mas nunca roda o canario) e o alerta deixa de vir duplicado.
+      #
       # O alerta chega por Telegram direto do worker (canal fora da Evolution) ALEM desta regra —
       # de proposito, porque o relay do Alertmanager entrega via Evolution e nao se auto-entrega.
       - alert: CanarioEntregaSemEco
-        expr: last_over_time(barra_canario_entrega_ok[90m]) == 0
+        expr: |
+          (
+            last_over_time(barra_canario_entrega_ok[90m]) == 0
+          )
+          and on(job, instance)
+          (
+            sum by (job, instance) (increase(barra_canario_entrega_total[90m])) > 0
+          )
         for: 5m
         labels:
           severity: critical
