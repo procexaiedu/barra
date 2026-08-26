@@ -465,6 +465,21 @@ class Settings(BaseSettings):
         default=True,
         description="Liga a rotina diária da manhã do Agente financeiro (spec 0005): UMA mensagem consolidada por Grupo financeiro cobrando as pendências (forma de pagamento, comprovante) e postando o saldo aberto. Grupo sem pendência e sem movimento fica em silêncio. Kill-switch via GRUPO_FINANCEIRO_ROTINA_ATIVA=false.",
     )
+    grupo_financeiro_responde: bool = Field(
+        default=False,
+        description=(
+            "O Agente financeiro FALA no Grupo financeiro? False (default) = modo SÓ ESCUTA: ele "
+            "ingere tudo — ficha, venda, comprovante, áudio, correção por quote — e nunca envia "
+            "mensagem nenhuma. Decisão do dono em 26/08/2026: 'ela somente recebe informações'. "
+            "O silêncio é o DEFAULT porque a falha segura deste módulo é calar, não falar: um bug "
+            "no encanamento da flag tem que sobrar para o lado de não escrever no grupo de uma "
+            "modelo. Ligar a boca é gesto explícito, via GRUPO_FINANCEIRO_RESPONDE=true no Env. "
+            "Silenciar aqui NÃO desliga o registro: a porta já trata `enviar=None` como 'decide a "
+            "fala e não a diz' (é o modo do replay/backfill), e nesse modo ela também não grava a "
+            "linha `de_mim` no log do grupo — o que é o certo, porque a trava de 'já perguntei "
+            "isso' lê esse log e ficaria se auto-silenciando por uma fala que ninguém leu."
+        ),
+    )
     grupo_financeiro_instancia: str = Field(
         default="",
         description="Instância Evolution do número da ProceX — o número do Agente financeiro, o mesmo em todos os Grupos financeiros. Usada pelo cron da manhã E pelo webhook: a modelo é participante do Grupo financeiro e o WhatsApp dela é outra instância apontando para o mesmo webhook, então o evento chega duas vezes e só a entrega da ProceX vale (na entrega dela o `fromMe` se inverte e as falas da modelo virariam eco do agente). VAZIA = rotina da manhã desligada e webhook sem filtro de instância (fail-open); prod deve defini-la.",

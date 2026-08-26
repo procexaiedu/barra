@@ -541,6 +541,9 @@ class _FakeSettings:
     # A instancia do numero da ProceX, a mesma do payload: sem ela a entrega espelhada pelo
     # WhatsApp da modelo processaria a mensagem duas vezes (webhook/routes::_e_a_instancia_da_procex).
     grupo_financeiro_instancia = "procex-shared"
+    # Default de producao (26/08/2026): ingere e nao fala. Este teste mede a linha que
+    # nasce no banco, que e exatamente o que o modo so escuta preserva.
+    grupo_financeiro_responde = False
     evolution_fernando_jids: ClassVar[list[str]] = []
     reset_teste_instances: ClassVar[list[str]] = []
 

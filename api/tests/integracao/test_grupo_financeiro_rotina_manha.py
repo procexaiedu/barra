@@ -481,6 +481,9 @@ def _settings(**over: Any) -> Any:
         update={
             "grupo_financeiro_rotina_ativa": True,
             "grupo_financeiro_instancia": "procex",
+            # A rotina inteira e sobre FALAR; o default de producao e o modo so escuta, entao
+            # todo teste daqui que espera mensagem tem que ligar a boca explicitamente.
+            "grupo_financeiro_responde": True,
             **over,
         }
     )
@@ -533,4 +536,38 @@ async def test_worker_desligado_nao_toca_em_nada(
         )
         == 0
     )
+    assert (
+        await cobrar_pendencias_da_manha(
+            conn, evolution, _settings(grupo_financeiro_responde=False), agora=MANHA
+        )
+        == 0
+    )
     assert evolution.enviados == []
+
+
+async def test_modo_so_escuta_nao_queima_a_reserva_do_dia(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """Calada, a rotina nao pode CONSUMIR o dia do grupo.
+
+    `reservar_fala_da_rotina` existe para o grupo nao ser cobrado duas vezes no mesmo dia. Se a
+    rotina rodasse muda e ainda assim reservasse, o dia em que a boca fosse ligada encontraria a
+    reserva ja gasta e o grupo ficaria calado — um silencio que ninguem pediu e que so apareceria
+    24h depois. Por isso o corte e ANTES de qualquer leitura, e nao um `enviar` no-op la dentro.
+    """
+    grupo = await _montar_grupo(conn)
+    falas = _Falas()
+    await _vender(conn, grupo, cliente="Gabriel", valor="700", falas=falas)
+    evolution = _EvolutionFalsa()
+
+    calado = await cobrar_pendencias_da_manha(
+        conn, evolution, _settings(grupo_financeiro_responde=False), agora=MANHA
+    )
+    assert calado == 0
+    assert evolution.enviados == []
+
+    # Mesmo dia, mesma pendencia, boca ligada: a cobranca sai — prova de que a passada muda nao
+    # gastou a reserva.
+    cobrados = await cobrar_pendencias_da_manha(conn, evolution, _settings(), agora=MANHA)
+    assert cobrados == 1
+    assert [e["remote_jid"] for e in evolution.enviados] == [grupo.jid]

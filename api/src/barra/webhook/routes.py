@@ -406,7 +406,16 @@ async def evolution_webhook(
                 resultado_financeiro = await processar_mensagem_do_grupo(
                     conn,
                     de_evolution(msg, midia=midia),
-                    enviar=_falar_no_grupo_financeiro(settings, msg),
+                    # Modo só escuta (`grupo_financeiro_responde=False`, o default): a porta
+                    # roda inteira e não diz nada. `enviar=None` não é um remendo — é o modo
+                    # que o replay e o backfill já usam, e nele a porta também não grava a
+                    # linha `de_mim`, então a trava de "já perguntei" não se auto-silencia
+                    # por uma fala que ninguém leu.
+                    enviar=(
+                        _falar_no_grupo_financeiro(settings, msg)
+                        if settings.grupo_financeiro_responde
+                        else None
+                    ),
                     transcrever=ouvinte_do_grupo(settings),
                     ler_comprovante=leitor_de_comprovante(settings),
                     ler_intencao=leitor_de_intencao(settings),

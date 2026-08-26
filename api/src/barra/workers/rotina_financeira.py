@@ -54,6 +54,13 @@ async def cobrar_pendencias_da_manha(
     cobrado hoje NAO contam: o retorno e "quantas mensagens sairam", que e o numero que se olha
     quando se pergunta se a rotina esta viva.
     """
+    # A rotina da manhã EXISTE para falar (cobra pendência e posta o saldo). No modo só
+    # escuta ela não tem uma versão muda que faça sentido: rodá-la sem boca gastaria as
+    # leituras e ainda queimaria a reserva do dia do grupo (`reservar_fala_da_rotina`),
+    # que existe para não cobrar duas vezes — e aí a cobrança de verdade, no dia em que a
+    # boca ligar, encontraria o dia já gasto e ficaria calada.
+    if not settings.grupo_financeiro_responde:
+        return 0
     if not settings.grupo_financeiro_rotina_ativa or not settings.grupo_financeiro_instancia:
         return 0
 

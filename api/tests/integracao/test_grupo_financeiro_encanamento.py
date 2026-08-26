@@ -308,6 +308,9 @@ class _FakeSettings:
     # que seria o fail-open) para o teste rodar o mesmo caminho de producao: o Grupo financeiro tem
     # a modelo dentro, e o WhatsApp dela entrega a MESMA mensagem por outra instancia.
     grupo_financeiro_instancia = "procex-shared"
+    # Default de producao (26/08/2026): o agente ingere e NAO fala. Os testes deste arquivo
+    # medem ingestao, entao rodam no default; quem quiser a boca liga por atributo de instancia.
+    grupo_financeiro_responde = False
     evolution_fernando_jids: ClassVar[list[str]] = []
     reset_teste_instances: ClassVar[list[str]] = []
 
@@ -384,6 +387,77 @@ async def test_webhook_entrega_grupo_financeiro_na_porta_unica(
     assert linha["autor_jid"] == "5521966666666@s.whatsapp.net"
     assert linha["autor_nome"] == "Parcerias"
     assert linha["texto"] == "Cliente Igor 800 1h"
+
+
+async def test_modo_so_escuta_ingere_tudo_e_nao_manda_a_boca_para_a_porta(
+    conn: AsyncConnection[dict[str, Any]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`grupo_financeiro_responde=False`: registra igual, e a porta recebe `enviar=None`.
+
+    O que se prova aqui e o ENCANAMENTO, nao a educacao da porta: a boca nao pode chegar la
+    dentro. Mandar um `enviar` que engole o texto pareceria igual por fora e seria pior — a porta
+    gravaria a linha `de_mim` de uma fala que ninguem leu, e a trava de "ja perguntei isso"
+    passaria a se auto-silenciar por causa dela.
+    """
+    modelo_id = await _seed_modelo(conn)
+    jid = _jid_novo()
+    grupo_id = await _seed_grupo(conn, modelo_id, jid=jid)
+
+    from barra.webhook import routes as _routes
+
+    def _explode(*_a: Any, **_k: Any) -> Any:  # pragma: no cover - so falha se for chamado
+        raise AssertionError("o transporte foi montado no modo so escuta")
+
+    monkeypatch.setattr(_routes, "_falar_no_grupo_financeiro", _explode)
+
+    payload = _payload_grupo(jid=jid, texto="Cliente Igor 800 1h", message_id="3EB0MUDO")
+    assert await _chamar_webhook(conn, payload) == {"status": "grupo_financeiro_registrada"}
+
+    # A ingestao aconteceu inteira: a mensagem entrou no log de origem do grupo...
+    (linha,) = await _mensagens_do_grupo(conn, grupo_id)
+    assert linha["texto"] == "Cliente Igor 800 1h"
+    # ...e nenhuma fala do agente foi registrada como dita.
+    cur = await conn.execute(
+        "SELECT count(*) AS n FROM barravips.grupo_financeiro_mensagens WHERE de_mim",
+    )
+    assert (await cur.fetchone())["n"] == 0
+
+
+async def test_com_a_boca_ligada_o_transporte_e_montado(
+    conn: AsyncConnection[dict[str, Any]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """O outro lado do interruptor — senao o teste acima passaria com o ramo quebrado dos dois.
+
+    Mede a mesma coisa que ele, pelo mesmo ponto: se o transporte foi MONTADO. O que a porta faz
+    com a boca depois disso (se ha recibo, qual o texto, o que ela cita) e assunto dos testes da
+    porta, nao deste arquivo.
+    """
+    modelo_id = await _seed_modelo(conn)
+    jid = _jid_novo()
+    await _seed_grupo(conn, modelo_id, jid=jid)
+
+    from barra.webhook import routes as _routes
+
+    montado: list[str] = []
+    original = _routes._falar_no_grupo_financeiro
+
+    def _espiao(settings: Any, msg: Any) -> Any:
+        montado.append(msg.remote_jid)
+        return original(settings, msg)
+
+    monkeypatch.setattr(_routes, "_falar_no_grupo_financeiro", _espiao)
+
+    app = _App(_PoolUmaConn(conn))
+    app.state.settings.grupo_financeiro_responde = True  # type: ignore[attr-defined]
+    request = _Request(
+        _payload_grupo(jid=jid, texto="Cliente Ramon 600 1h", message_id="3EB0FALA"), app
+    )
+    assert await evolution_webhook(request) == {  # type: ignore[arg-type]
+        "status": "grupo_financeiro_registrada"
+    }
+    assert montado == [jid]
 
 
 async def test_webhook_grupo_desconhecido_nao_vira_nada(
