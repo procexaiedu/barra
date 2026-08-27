@@ -283,6 +283,84 @@ def extrair_delecao(payload: dict[str, Any]) -> DelecaoEvolution | None:
     )
 
 
+_PROFUNDIDADE_DO_ESBOCO = 6
+_ITENS_POR_NIVEL_NO_ESBOCO = 24
+_STRING_INTEIRA_ATE = 48
+_TEXTO_NO_ESBOCO = 8
+
+_CHAVES_DE_TEXTO = frozenset(
+    {"conversation", "caption", "body", "description", "title", "pushname", "matchedtext"}
+)
+"""Chaves cujo VALOR e fala de gente — cortadas curto mesmo sendo curtas.
+
+`text` NAO esta aqui de proposito: e onde mora o emoji da reacao, e ele e o dado que a captura
+existe para ver. Um emoji cabe nos 8 caracteres; uma frase, nao.
+"""
+
+
+def parece_gesto_em_grupo(payload: dict[str, Any]) -> bool:
+    """O payload TEM cara de reacao/edicao vinda de um grupo?
+
+    Deliberadamente frouxo na grafia e estrito no lugar. Frouxo porque a grafia e exatamente o que
+    nao sabemos: casa por SUBSTRING sem caixa (`reaction`, `protocol`, `edit`), o que pega tanto
+    `reactionMessage` (v2) quanto `ReactionMessage` (whatsmeow marshalado em CamelCase) quanto o
+    nome que a EvoGo inventar. Estrito no lugar porque so `@g.us` interessa: e a mesma fronteira
+    de `extrair_gesto`, e ela mantem a reacao do CLIENTE (chat 1:1 do agente de venda) fora daqui.
+    """
+    data = payload.get("data")
+    if not isinstance(data, dict):
+        return False
+    key = data.get("key") if isinstance(data.get("key"), dict) else {}
+    assert isinstance(key, dict)
+    remote_jid = key.get("remoteJid") or data.get("remoteJid")
+    if not (isinstance(remote_jid, str) and remote_jid.endswith("@g.us")):
+        return False
+    message = data.get("message")
+    if not isinstance(message, dict):
+        return False
+    return any(
+        marca in nome.lower() for nome in message for marca in ("reaction", "protocol", "edit")
+    )
+
+
+def esboco_do_payload(valor: Any, *, chave: str = "", profundidade: int = 0) -> Any:
+    """A FORMA do payload com os valores redigidos — para conferir grafia sem virar dump de PII.
+
+    O que a captura precisa e a arvore de chaves e os IDS (para provar que o id do gesto e o do
+    ALVO, e nao o do envelope); o que ela nao pode carregar e conteudo de mensagem e telefone.
+
+    O corte e por CHAVE, nao por tamanho, e isso foi um bug pego no teste: cortar toda string curta
+    em 8 mutilava os proprios ids que a captura existe para comparar (`ENVELOPE123` virava
+    `ENVELOPE`). Entao: JID vira `<jid>` (e telefone da modelo e do telefonista), fala de gente
+    (`_CHAVES_DE_TEXTO`) e cortada curto, string longa vira `<str:N>` e o resto — id, flag, enum —
+    passa inteiro.
+
+    Numero, booleano e `None` passam crus: sao flags (`fromMe`) e timestamps, e e por eles que se
+    distingue a reacao POSTA da reacao RETIRADA.
+    """
+    if profundidade > _PROFUNDIDADE_DO_ESBOCO:
+        return "<fundo>"
+    if isinstance(valor, dict):
+        return {
+            str(k): esboco_do_payload(v, chave=str(k), profundidade=profundidade + 1)
+            for k, v in list(valor.items())[:_ITENS_POR_NIVEL_NO_ESBOCO]
+        }
+    if isinstance(valor, list):
+        return [
+            esboco_do_payload(v, chave=chave, profundidade=profundidade + 1)
+            for v in valor[:_ITENS_POR_NIVEL_NO_ESBOCO]
+        ]
+    if isinstance(valor, str):
+        if "@" in valor:
+            return "<jid>"
+        if chave.lower() in _CHAVES_DE_TEXTO:
+            return f"<str:{len(valor)}>" if len(valor) > _TEXTO_NO_ESBOCO else valor
+        if len(valor) > _STRING_INTEIRA_ATE:
+            return f"<str:{len(valor)}>"
+        return valor
+    return valor
+
+
 GRAFIA_DO_GESTO_CONFIRMADA = False
 """O envelope real de REACAO e de EDICAO da EvoGo ja foi capturado em producao?
 

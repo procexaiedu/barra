@@ -41,8 +41,10 @@ from barra.webhook.parser import (
     MensagemEvolution,
     _numero_curto,
     adaptar_webhook_go,
+    esboco_do_payload,
     extrair_delecao,
     extrair_mensagem,
+    parece_gesto_em_grupo,
     parse_comando_grupo,
 )
 from barra.webhook.reset_teste import limpar_redis_modelo, resetar_modelo
@@ -543,6 +545,34 @@ def _registrar_descarte(payload: dict[str, Any]) -> None:
     tipo = next((k for k in chaves if k.endswith("Message")), "sem_message")
     WEBHOOK_DESCARTES.labels(tipo).inc()
     _logger.info("webhook_mensagem_descartada tipo=%s campos=%s", tipo, ",".join(chaves))
+    _capturar_grafia_do_gesto(payload)
+
+
+def _capturar_grafia_do_gesto(payload: dict[str, Any]) -> None:
+    """Captura a FORMA do envelope de reacao/edicao em grupo, que hoje morre aqui sem deixar rastro.
+
+    Existe para destravar `parser.GRAFIA_DO_GESTO_CONFIRMADA`: o ✅ do telefonista (ADR-0046 §5) e
+    a porta que promove a Ficha a Venda registrada, e ela esta FECHADA porque o payload real da
+    EvoGo nunca foi visto — o parser do gesto foi escrito contra um envelope hipotetico e mantido
+    desligado de proposito, ja que um parser que "quase" acerta le o id do ENVELOPE no lugar do id
+    do ALVO e promove a ficha ERRADA.
+
+    O `webhook_mensagem_descartada` logo acima nao basta: ele registra so os nomes de primeiro
+    nivel (`reactionMessage`), e o que falta saber e o que tem DENTRO — onde mora o alvo, onde mora
+    o emoji, e como chega a reacao RETIRADA.
+
+    Nao dumpa payload: passa por `esboco_do_payload`, que redige JID e texto. E so dispara para
+    gesto EM GRUPO, que sao os dois grupos financeiros — reacao em chat de cliente nao entra.
+
+    **Temporario.** Sai no mesmo commit que virar a chave da grafia.
+    """
+    if not parece_gesto_em_grupo(payload):
+        return
+    try:
+        esboco = json.dumps(esboco_do_payload(payload), ensure_ascii=False)[:4000]
+    except (TypeError, ValueError):  # pragma: no cover - esboco so produz tipos serializaveis
+        return
+    _logger.warning("webhook_grafia_do_gesto esboco=%s", esboco)
 
 
 def _evento_normalizado(payload: dict[str, Any]) -> str | None:

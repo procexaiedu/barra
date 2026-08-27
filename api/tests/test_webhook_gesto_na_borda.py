@@ -24,6 +24,7 @@ O teste do fim e o unico `xfail` do arquivo, e ele e o marcador da divida: o fix
 **HIPOTETICO**. Roteiro da captura em `.scratch/agente-financeiro-v2/PAYLOAD-EVOGO.md`.
 """
 
+import json
 from typing import Any
 
 import pytest
@@ -32,9 +33,11 @@ from barra.webhook.parser import (
     GRAFIA_DO_GESTO_CONFIRMADA,
     ReacaoEvolution,
     adaptar_webhook_go,
+    esboco_do_payload,
     extrair_delecao,
     extrair_gesto,
     extrair_mensagem,
+    parece_gesto_em_grupo,
 )
 
 GRUPO_JID = "120363000000000001@g.us"
@@ -211,3 +214,105 @@ def test_reacao_no_grupo_vira_gesto_com_o_id_do_ALVO() -> None:
     assert gesto.remote_jid == GRUPO_JID
     assert gesto.emoji == "✅"
     assert gesto.participant == TELEFONISTA_JID
+
+
+# --- a captura da grafia (temporaria, sai quando a chave virar) ----------------------------------
+
+
+def _payload_de_reacao(*, remote_jid: str = "120363000@g.us") -> dict[str, object]:
+    """O envelope HIPOTETICO de reacao — o mesmo contra o qual `_ler_gesto_hipotetico` foi escrito.
+
+    Serve so para exercitar a captura: se o real for diferente (que e a suspeita), a captura tem
+    que disparar do mesmo jeito, porque ela casa por substring e nao pela grafia exata.
+    """
+    return {
+        "event": "messages.upsert",
+        "instance": "procex-teste",
+        "data": {
+            "key": {"id": "ENVELOPE123", "remoteJid": remote_jid, "fromMe": False},
+            "message": {
+                "reactionMessage": {
+                    "key": {"id": "ALVO456", "remoteJid": remote_jid, "fromMe": True},
+                    "text": "✅",
+                    "senderTimestampMs": 1756000000000,
+                }
+            },
+        },
+    }
+
+
+def test_a_captura_dispara_para_reacao_em_grupo_e_nao_para_chat_de_cliente() -> None:
+    """A fronteira e o `@g.us`, nao a grafia: reacao do CLIENTE continua ruido para o agente de
+    venda, e nao pode virar linha de log nenhuma."""
+    assert parece_gesto_em_grupo(_payload_de_reacao()) is True
+    assert parece_gesto_em_grupo(_payload_de_reacao(remote_jid="5511999@s.whatsapp.net")) is False
+
+
+@pytest.mark.parametrize(
+    "grafia",
+    ["reactionMessage", "ReactionMessage", "REACTION_MESSAGE", "protocolMessage", "editedMessage"],
+)
+def test_a_captura_casa_por_substring_porque_a_grafia_e_o_desconhecido(grafia: str) -> None:
+    """Casar pela grafia exata seria pedir para descobrir o que ja se sabe. A EvoGo marshala o
+    `waE2E.Message` do whatsmeow, e a caixa dele nao foi vista ao vivo."""
+    payload = _payload_de_reacao()
+    message = payload["data"]["message"]  # type: ignore[index]
+    assert isinstance(message, dict)
+    payload["data"]["message"] = {grafia: message["reactionMessage"]}  # type: ignore[index]
+
+    assert parece_gesto_em_grupo(payload) is True
+
+
+def test_a_captura_nao_dispara_para_mensagem_comum_de_grupo() -> None:
+    """Senao todo card postado viraria um esboco no log, e a captura deixaria de ser captura."""
+    payload = _payload_de_reacao()
+    payload["data"]["message"] = {"conversation": "bom dia"}  # type: ignore[index]
+
+    assert parece_gesto_em_grupo(payload) is False
+
+
+def test_o_esboco_preserva_a_arvore_e_os_ids_e_redige_jid_e_texto_longo() -> None:
+    """O esboco existe para responder DUAS perguntas — onde mora o alvo e onde mora o emoji — sem
+    virar dump de payload. Id fica (e o que prova alvo x envelope); JID sai (e telefone)."""
+    esboco = esboco_do_payload(_payload_de_reacao())
+
+    assert isinstance(esboco, dict)
+    reacao = esboco["data"]["message"]["reactionMessage"]
+    assert reacao["key"]["id"] == "ALVO456"
+    assert reacao["key"]["remoteJid"] == "<jid>"
+    assert reacao["key"]["fromMe"] is True
+    assert reacao["text"] == "✅"
+    # Timestamp cru: e por ele (e pelo `text` vazio) que se distingue reacao POSTA de RETIRADA.
+    assert reacao["senderTimestampMs"] == 1756000000000
+    assert esboco["data"]["key"]["id"] == "ENVELOPE123"
+
+
+def test_o_esboco_corta_texto_de_mensagem_e_nao_carrega_conteudo() -> None:
+    """Um `protocolMessage` de EDICAO carrega o texto novo. A captura quer a FORMA, nao a frase."""
+    payload = _payload_de_reacao()
+    payload["data"]["message"] = {  # type: ignore[index]
+        "protocolMessage": {
+            "type": "MESSAGE_EDIT",
+            "key": {"id": "ALVO456"},
+            "editedMessage": {"conversation": "o valor certo era 700 e nao 500, corrige ai"},
+        }
+    }
+
+    esboco = esboco_do_payload(payload)
+    assert isinstance(esboco, dict)
+    editada = esboco["data"]["message"]["protocolMessage"]["editedMessage"]["conversation"]
+    assert editada.startswith("<str:")
+    assert "700" not in editada
+
+
+def test_o_esboco_nao_estoura_em_payload_recursivo_ou_gigante() -> None:
+    """Borda hostil: o webhook e entrada nao-confiavel, e a captura roda ANTES de qualquer gate de
+    negocio. Ela para na profundidade e no numero de itens em vez de estourar a pilha."""
+    fundo: dict[str, object] = {"fim": 1}
+    for _ in range(50):
+        fundo = {"n": fundo}
+    esboco = esboco_do_payload({"data": fundo, "lista": list(range(500))})
+
+    assert isinstance(esboco, dict)
+    assert json.dumps(esboco)  # serializavel, que e o que o log exige
+    assert len(esboco["lista"]) == 24
