@@ -268,6 +268,34 @@ Forma: ( )Pix ( )Dinheiro ( )Cartão
 ✏️ OBSERVAÇÕES
 """
 
+# O mesmo card de Campinas com a UNICA correcao que ele precisava: o guarda-chuva "Cartão"
+# aberto nas tres formas que o dominio reconhece. Ele e o texto que os telefonistas passam a
+# copiar — por isso mora aqui, e nao so na doc: se o parser deixar de ler alguma destas linhas,
+# quem descobre e este arquivo, nao a operacao.
+CARD_DE_CAMPINAS_CORRIGIDO = """📋 FICHA DE AGENDAMENTO
+
+👤 CLIENTE
+Nome: daniel
+
+📝 CONTRATAÇÃO
+Nome no Anúncio: Megan
+
+🕒 HORÁRIO
+Duração: 1h
+
+📍 LOCAL
+( x ) Local próprio
+( ) Saída
+
+💰 VALORES
+Valor: R$600,00
+
+💳 PAGAMENTO
+Forma: ( )Pix ( )Dinheiro ( )Débito ( x)Crédito ( )Link
+
+✏️ OBSERVAÇÕES
+"""
+
 COMUNICADO_DE_CAMPINAS = """👤 CLIENTE
 
 Nome: Marcos
@@ -316,6 +344,61 @@ def test_nome_no_anuncio_e_lido_como_nome_de_anuncio() -> None:
     # Nada marcado entre "( )Pix ( )Dinheiro ( )Cartão" continua sendo forma NAO dita — e ela e
     # cobrada de manha, junto com as outras pendencias.
     assert lida.forma_pagamento is None
+
+
+def test_cartao_como_guarda_chuva_nao_e_forma_e_esse_e_o_motivo_do_template_novo() -> None:
+    """ "( x )Cartão" marcado ainda deixa a forma VAZIA — e isso e a regra, nao um furo do parser.
+
+    O ADR-0046 §4 desmembrou cartao em `debito`, `credito` e `link` porque cada um concilia num
+    extrato diferente (o credito tem taxa de parcelamento, o link nem passa maquininha). Sortear
+    entre eles moveria dinheiro entre contas diferentes com base num palpite, entao o parser se
+    cala — e a forma volta como pendencia da manha.
+
+    O custo disso apareceu em producao em 26/08: a ficha do Carlinhos (grupo da Beatriz) nasceu
+    com `forma_pagamento` nulo porque o card de Campinas so oferecia "Cartão". O conserto e do
+    TEMPLATE, e e o que `CARD_DE_CAMPINAS_CORRIGIDO` fixa — nao um bucket "cartao" no dominio.
+    """
+    lida = ler_ficha(CARD_DE_CAMPINAS.replace("( )Cartão", "( x)Cartão"), hoje=HOJE)
+
+    assert lida is not None
+    assert lida.forma_pagamento is None
+
+
+@pytest.mark.parametrize(
+    ("marcada", "esperada"),
+    [
+        ("( )Pix ( )Dinheiro ( )Débito ( x)Crédito ( )Link", "credito"),
+        ("( )Pix ( )Dinheiro ( x)Débito ( )Crédito ( )Link", "debito"),
+        ("( )Pix ( )Dinheiro ( )Débito ( )Crédito ( x)Link", "link"),
+        ("( x)Pix ( )Dinheiro ( )Débito ( )Crédito ( )Link", "pix"),
+        ("( )Pix ( x)Dinheiro ( )Débito ( )Crédito ( )Link", "dinheiro"),
+        # As grafias manuais que o `_opcoes` aceita de proposito: espacado e o X POR FORA do
+        # parentese, que e como quem preenche no celular escreve.
+        ("( ) Pix  ( ) Dinheiro  ( ) Débito  (x) Crédito  ( ) Link", "credito"),
+        ("( ) Pix  ( ) Dinheiro  ( ) Débito  ( ) Crédito X  ( ) Link", "credito"),
+        # Nada marcado continua sendo forma nao dita — o card em branco nao inventa pagamento.
+        ("( )Pix ( )Dinheiro ( )Débito ( )Crédito ( )Link", None),
+    ],
+)
+def test_o_card_de_campinas_corrigido_le_as_cinco_formas(
+    marcada: str, esperada: str | None
+) -> None:
+    """As cinco opcoes do template novo, cada uma marcada, mais as grafias manuais.
+
+    O resto do card tem que continuar inteiro: trocar a linha do pagamento nao pode custar o
+    valor nem o tipo de atendimento, que sao os dois campos que o painel mostra.
+    """
+    texto = CARD_DE_CAMPINAS_CORRIGIDO.replace(
+        "( )Pix ( )Dinheiro ( )Débito ( x)Crédito ( )Link", marcada
+    )
+    lida = ler_ficha(texto, hoje=HOJE)
+
+    assert lida is not None
+    assert lida.forma_pagamento == esperada
+    assert lida.valor_da_modelo == Decimal("600.00")
+    assert lida.duracao_minutos == 60
+    assert lida.tipo_atendimento == "interno"
+    assert lida.nome_anuncio == "Megan"
 
 
 def test_anuncio_barra_origem_e_rotulo_de_origem_e_nao_de_nome() -> None:

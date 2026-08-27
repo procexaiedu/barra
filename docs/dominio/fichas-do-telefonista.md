@@ -122,6 +122,59 @@ dele na reunião foi ambígua entre "valor do job" e "valor total".
 
 ---
 
+## 4. O card em uso em Campinas — e a correção de 26/08/2026
+
+Campinas não usa o template acima: usa uma variante enxuta, criada antes dele, que os telefonistas
+já postam direto no grupo financeiro da modelo (o Grupo de fichas do ADR-0046 ainda não existe).
+Ela é lida sem problema — exceto por **um campo, que nascia sempre vazio**.
+
+⚠️ **"Cartão" não é forma de pagamento.** O card oferecia `Forma: ( )Pix ( )Dinheiro ( )Cartão`.
+`Cartão` foi desmembrado em `Débito`, `Crédito` e `Link` (ADR-0046 §4, ticket 11) porque cada um
+concilia num extrato diferente — o crédito tem taxa de parcelamento, o link nem passa maquininha.
+O parser **se recusa a sortear** entre eles: marcar `Cartão` deixa a forma nula, e ela volta como
+pendência da cobrança da manhã. Foi o que aconteceu com a ficha do Carlinhos em 26/08/2026, a
+primeira que o sistema gravou de verdade: valor, duração e local entraram, forma não.
+
+O conserto é do **template**, não do domínio — abrir o guarda-chuva nas três formas:
+
+```
+📋 *FICHA DE AGENDAMENTO*
+
+👤 *CLIENTE*
+Nome:
+
+📝 *CONTRATAÇÃO*
+Nome no Anúncio:
+
+🕒 *HORÁRIO*
+Duração:
+
+📍 *LOCAL*
+( ) Local próprio
+( ) Saída
+
+💰 *VALORES*
+Valor: R$
+
+💳 *PAGAMENTO*
+Forma: ( )Pix ( )Dinheiro ( )Débito ( )Crédito ( )Link
+
+✏️ *OBSERVAÇÕES*
+```
+
+O resto da variante fica como está, e é lido de propósito:
+
+- `Nome no Anúncio` (com a preposição) é sinônimo de `Nome do perfil/anúncio`.
+- `Valor:` sem "total" vira o **valor da modelo** — que numa ficha individual é o valor dela, e é
+  o que o painel mostra. Não precisa virar `Valor total`.
+- O `X` pode ser escrito por fora do parêntese (`( ) Crédito X`) ou colado (`( x)Crédito`): quem
+  preenche no celular não consegue clicar dentro do `( )`, e as duas grafias são aceitas.
+- Nada marcado continua sendo forma **não dita** — o card em branco não inventa pagamento.
+
+O card corrigido está fixado em `api/tests/test_grupo_financeiro_ficha.py`
+(`CARD_DE_CAMPINAS_CORRIGIDO`), com as cinco formas testadas uma a uma: se o parser deixar de ler
+alguma, quem descobre é a suíte, não a operação.
+
 ## Campos e o que cada um significa
 
 | Campo | Vem de onde | Observação |
