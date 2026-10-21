@@ -46,7 +46,7 @@ Tira o painel Next.js da Vercel (conta `procexais-projects`, projeto `barra`, do
   com **`docker service update --force barra-vips_barra-interface`** (idêntico a redeploy de
   prompt no worker) — push de código sozinho **não** recria o serviço (spec não muda).
 - **Traefik:** `Host(elitebaby.procexai.tech)`, porta 3000, `certresolver le`. Rede
-  `traefik_public` (a interface fala com api/Supabase por HTTPS público, não precisa de
+  `traefik_grande` (a interface fala com api/Supabase por HTTPS público, não precisa de
   `supabase_default`).
 - **`NEXT_PUBLIC_*` são baked no build:** `API_URL` e `SUPABASE_URL` ficam versionados no
   compose (config não-sensível, espírito do ADR 0018); as chaves são `${VAR}` do Env do stack.

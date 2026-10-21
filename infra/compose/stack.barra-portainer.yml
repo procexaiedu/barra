@@ -133,11 +133,11 @@ services:
         - "traefik.http.routers.barra-api.tls=true"
         - "traefik.http.routers.barra-api.tls.certresolver=le"
         - "traefik.http.services.barra-api.loadbalancer.server.port=8000"
-        - "traefik.docker.network=traefik_public"
+        - "traefik.docker.network=traefik_grande"
     depends_on:
       - redis-barra
     networks:
-      - traefik_public
+      - traefik_grande
       - supabase_default
     secrets:
       - b2_barra_secret_key
@@ -231,7 +231,7 @@ services:
     depends_on:
       - redis-barra
     networks:
-      - traefik_public
+      - traefik_grande
       - supabase_default
     secrets:
       - b2_barra_secret_key
@@ -246,7 +246,7 @@ services:
     volumes:
       - redis-barra-data:/data
     networks:
-      - traefik_public
+      - traefik_grande
 
   prometheus-barra:
     image: prom/prometheus:v2.53.0
@@ -267,7 +267,7 @@ services:
       restart_policy:
         condition: on-failure
     networks:
-      - traefik_public
+      - traefik_grande
 
   alertmanager-barra:
     image: prom/alertmanager:v0.27.0
@@ -284,7 +284,7 @@ services:
       restart_policy:
         condition: on-failure
     networks:
-      - traefik_public
+      - traefik_grande
 
   grafana-barra:
     image: grafana/grafana:11.1.0
@@ -307,9 +307,9 @@ services:
         - "traefik.http.routers.grafana-barra.tls=true"
         - "traefik.http.routers.grafana-barra.tls.certresolver=le"
         - "traefik.http.services.grafana-barra.loadbalancer.server.port=3000"
-        - "traefik.docker.network=traefik_public"
+        - "traefik.docker.network=traefik_grande"
     networks:
-      - traefik_public
+      - traefik_grande
 
   # Interface (painel Next.js) — migrada da Vercel para a stack (ver
   # infra/runbooks/interface-portainer.md). Mesmo padrão git-clone-no-boot de
@@ -353,9 +353,9 @@ services:
         - "traefik.http.routers.barra-interface.tls=true"
         - "traefik.http.routers.barra-interface.tls.certresolver=le"
         - "traefik.http.services.barra-interface.loadbalancer.server.port=3000"
-        - "traefik.docker.network=traefik_public"
+        - "traefik.docker.network=traefik_grande"
     networks:
-      - traefik_public
+      - traefik_grande
 
 volumes:
   redis-barra-data:
@@ -374,7 +374,7 @@ configs:
     external: true
 
 networks:
-  traefik_public:
+  traefik_grande:
     external: true
   supabase_default:
     external: true

@@ -10,7 +10,7 @@ real, datasource, disparo de alerta — é **passo do operador** descrito abaixo
 - `prometheus-barra` — clona a `main` no boot (mesmo padrão da api/worker, já que o Swarm
   não tem o repo no host), sobe com `--config.file=/repo/infra/monitoring/prometheus.yml`.
   Scrape de `barra-api:8000/metrics` (FastAPI) e `barra-worker:9091/metrics` (ARQ).
-  Avalia `alert.rules.yml` e dispara para o Alertmanager. Interno à rede `traefik_public`.
+  Avalia `alert.rules.yml` e dispara para o Alertmanager. Interno à rede `traefik_grande`.
 - `alertmanager-barra` — sobe com `--config.expand-env` para expandir `${ALERT_WEBHOOK_URL}`.
   Rota única → receiver placeholder. Interno.
 - `grafana-barra` — datasource Prometheus **e dashboards** provisionados de

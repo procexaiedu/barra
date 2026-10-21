@@ -7,7 +7,7 @@ Stacks Docker usadas pelo deploy via Portainer.
   `infra/runbooks/stack-git-backed.md`). Inclui a stack de observabilidade do OBS-02
   (`prometheus-barra` + `alertmanager-barra` + `grafana-barra`), aditiva aos serviços de app.
   Só o Grafana publica via Traefik (`grafana-barra.procexai.tech`); Prometheus e Alertmanager
-  ficam internos à rede `traefik_public`. Inclui também o `barra-interface` (painel Next.js
+  ficam internos à rede `traefik_grande`. Inclui também o `barra-interface` (painel Next.js
   migrado da Vercel — `elitebaby.procexai.tech`), no mesmo padrão git-clone-no-boot de
   api/worker; cutover em `infra/runbooks/interface-portainer.md`.
 - `stack.barra.yml`: esqueleto base/legado (Compose local, não é o que roda em produção).

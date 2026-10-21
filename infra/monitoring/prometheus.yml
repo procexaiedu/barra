@@ -1,7 +1,7 @@
 # OBS-02 — Prometheus do stack barra (Elite Baby MVP).
 # Scrape da api (FastAPI /metrics na porta da app) e do worker ARQ
 # (prometheus_client.start_http_server(9091) — ver workers/settings.py).
-# Os nomes de servico batem com o stack.barra-portainer.yml (rede traefik_public).
+# Os nomes de servico batem com o stack.barra-portainer.yml (rede traefik_grande).
 global:
   scrape_interval: 30s
   evaluation_interval: 30s

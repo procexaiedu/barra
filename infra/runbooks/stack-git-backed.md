@@ -49,7 +49,7 @@ Env vars de segredo a setar no `Env` do novo stack (nome → valor do YAML salvo
 > (fail-closed por design, `main.py:86-95`). Conferir a lista contra o YAML salvo.
 
 Passos:
-1. `StackDelete` da stack `barra-vips`. Recursos `external: true` (networks `traefik_public`/
+1. `StackDelete` da stack `barra-vips`. Recursos `external: true` (networks `traefik_grande`/
    `supabase_default`, secret `minio_secret_key`, os 4 configs `barra_*`) **sobrevivem**.
    Volumes nomeados (`redis-barra-data` etc.) persistem pelo prefixo `barra-vips_` — **manter
    o nome `barra-vips`**.
